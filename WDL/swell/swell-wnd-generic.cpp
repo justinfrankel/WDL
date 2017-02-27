@@ -137,7 +137,6 @@ class LICE_CairoBitmap : public LICE_IBitmap
     {
       if (w<0) w=0; 
       if (h<0) h=0;
-      if (w == m_width && h == m_height) return false;
 
       if (m_surf) cairo_surface_destroy(m_surf);
       m_surf = NULL;
