@@ -137,7 +137,6 @@ class LICE_CairoBitmap : public LICE_IBitmap
     {
       if (w<0) w=0; 
       if (h<0) h=0;
-      if (w == m_width && h == m_height) return false;
 
       if (m_surf) cairo_surface_destroy(m_surf);
       m_surf = NULL;
@@ -209,7 +208,7 @@ static void swell_manageOSwindow(HWND hwnd, bool wantfocus)
  
         RECT r = hwnd->m_position;
         GdkWindowAttr attr={0,};
-        attr.title = "";
+        attr.title = (char *)"";
         attr.event_mask = GDK_ALL_EVENTS_MASK|GDK_EXPOSURE_MASK;
         attr.x = r.left;
         attr.y = r.top;
@@ -294,23 +293,33 @@ void swell_OSupdateWindowToScreen(HWND hwnd, RECT *rect)
   {
     LICE_IBitmap *bm = hwnd->m_backingstore;
     LICE_SubBitmap tmpbm(bm,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
-
     GdkRectangle rrr={rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top};
-    gdk_window_begin_paint_rect(hwnd->m_oswindow, &rrr);
-
-    cairo_t * crc = gdk_cairo_create (hwnd->m_oswindow);
     cairo_surface_t *temp_surface = (cairo_surface_t*)bm->Extended(0xca140,NULL);
+
+#if SWELL_TARGET_GDK == 2
+    gdk_window_begin_paint_rect(hwnd->m_oswindow, &rrr);
+    cairo_t * crc = gdk_cairo_create (hwnd->m_oswindow);
     cairo_reset_clip(crc);
+#else
+    cairo_region_t *cr=cairo_region_create_rectangle (&rrr);
+    GdkDrawingContext *gdc=gdk_window_begin_draw_frame(hwnd->m_oswindow, cr);
+    cairo_t *crc = gdk_drawing_context_get_cairo_context (gdc);
+#endif
+
     cairo_rectangle(crc, rect->left, rect->top, rect->right-rect->left, rect->bottom-rect->top);
     cairo_clip(crc);
     if (temp_surface) cairo_set_source_surface(crc, temp_surface, 0,0);
     cairo_paint(crc);
-    cairo_destroy(crc);
 
+#if SWELL_TARGET_GDK == 2
+    cairo_destroy(crc);
     gdk_window_end_paint(hwnd->m_oswindow);
+#else
+    gdk_window_end_draw_frame(hwnd->m_oswindow, gdc);
+    cairo_region_destroy(cr);
+#endif
 
     if (temp_surface) bm->Extended(0xca140,temp_surface); // release
-
   }
 #endif
 }
@@ -530,20 +539,32 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
               SWELL_internalLICEpaint(hwnd, &tmpbm, r.left, r.top, forceref);
 
               GdkRectangle rrr={r.left,r.top,r.right-r.left,r.bottom-r.top};
-              gdk_window_begin_paint_rect(exp->window, &rrr);
-
-              cairo_t *crc = gdk_cairo_create (exp->window);
               LICE_IBitmap *bm = hwnd->m_backingstore;
               cairo_surface_t *temp_surface = (cairo_surface_t*)bm->Extended(0xca140,NULL);
+
+#if SWELL_TARGET_GDK == 2
+              gdk_window_begin_paint_rect(exp->window, &rrr);
+              cairo_t *crc = gdk_cairo_create (exp->window);
               cairo_reset_clip(crc);
+#else
+              cairo_region_t *cr=cairo_region_create_rectangle (&rrr);
+              GdkDrawingContext *gdc=gdk_window_begin_draw_frame(hwnd->m_oswindow, cr);
+              cairo_t *crc = gdk_drawing_context_get_cairo_context (gdc);
+#endif
+
               cairo_rectangle(crc, r.left, r.top, r.right-r.left, r.bottom-r.top);
               cairo_clip(crc);
               if (temp_surface) cairo_set_source_surface(crc, temp_surface, 0,0);
               cairo_paint(crc);
-              cairo_destroy(crc);
-              if (temp_surface) bm->Extended(0xca140,temp_surface); // release
 
+#if SWELL_TARGET_GDK == 2
+              cairo_destroy(crc);
               gdk_window_end_paint(exp->window);
+#else
+              gdk_window_end_draw_frame(hwnd->m_oswindow, gdc);
+              cairo_region_destroy(cr);
+#endif              
+              if (temp_surface) bm->Extended(0xca140,temp_surface); // release
             }
 #endif
           }
@@ -688,7 +709,9 @@ void swell_runOSevents()
   {
 //    static GMainLoop *loop;
 //    if (!loop) loop = g_main_loop_new(NULL,TRUE);
+#if SWELL_TARGET_GDK == 2
     gdk_window_process_all_updates();
+#endif
 
     GMainContext *ctx=g_main_context_default();
     while (g_main_context_iteration(ctx,FALSE))
@@ -1147,13 +1170,23 @@ void SWELL_GetViewPort(RECT *r, const RECT *sourcerect, bool wantWork)
 #ifdef SWELL_TARGET_GDK
   if (swell_initwindowsys())
   {
+    GdkRectangle rc={0,0,1024,1024};
+#if SWELL_TARGET_GDK == 2
     GdkScreen *defscr = gdk_screen_get_default();
     if (!defscr) { r->left=r->top=0; r->right=r->bottom=1024; return; }
     gint idx = sourcerect ? gdk_screen_get_monitor_at_point(defscr,
            (sourcerect->left+sourcerect->right)/2,
            (sourcerect->top+sourcerect->bottom)/2) : 0;
-    GdkRectangle rc={0,0,1024,1024};
     gdk_screen_get_monitor_geometry(defscr,idx,&rc);
+#else
+    GdkDisplay *defdspl = gdk_display_get_default();
+    if (!defdspl) { r->left=r->top=0; r->right=r->bottom=1024; return; }
+    GdkMonitor *mntr = sourcerect ? gdk_display_get_monitor_at_point(defdspl,
+                                    (sourcerect->left+sourcerect->right)/2,
+                                    (sourcerect->top+sourcerect->bottom)/2)
+                                  : gdk_display_get_primary_monitor(defdspl);
+    gdk_monitor_get_geometry(mntr ,&rc);
+#endif
     r->left=rc.x; r->top = rc.y;
     r->right=rc.x+rc.width;
     r->bottom=rc.y+rc.height;
@@ -5054,7 +5087,7 @@ void UpdateWindow(HWND hwnd)
 {
   if (hwnd)
   {
-#ifdef SWELL_TARGET_GDK
+#if SWELL_TARGET_GDK == 2
     while (hwnd && !hwnd->m_oswindow) hwnd=hwnd->m_parent;
     if (hwnd && hwnd->m_oswindow) gdk_window_process_updates(hwnd->m_oswindow,true);
 #endif
