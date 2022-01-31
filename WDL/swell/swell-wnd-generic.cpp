@@ -7315,16 +7315,6 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
           g_menubar_active_drag=false;
           if (swell_delegate_menu_message(hwnd,lParam,WM_LBUTTONUP,true)) return 0;
-
-          POINT pt;
-          GetCursorPos(&pt);
-          pt.x -= g_menubar_startpt.x;
-          pt.y -= g_menubar_startpt.y;
-          if (pt.x*pt.x+ pt.y*pt.y > 4*4) 
-          {
-            DestroyPopupMenus();
-            return 0;
-          }
         }
         RECT r;
         const int x = menuBarHitTest(hwnd,GET_X_LPARAM(lParam),GET_Y_LPARAM(lParam),&r,-1,-1);
