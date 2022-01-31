@@ -314,7 +314,8 @@ void swell_recalcMinMaxInfo(HWND hwnd)
   h.max_height= mmi.ptMaxSize.y;
   h.min_width= mmi.ptMinTrackSize.x;
   h.min_height= mmi.ptMinTrackSize.y;
-  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) (GDK_HINT_POS | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) (GDK_HINT_POS | GDK_HINT_MIN_SIZE));
+  gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) (GDK_HINT_POS | GDK_HINT_MAX_SIZE)); // workaround kwin window button glitch
 }
 
 void SWELL_initargs(int *argc, char ***argv) 
