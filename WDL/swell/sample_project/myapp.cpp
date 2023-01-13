@@ -20,12 +20,12 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include "../WDL/win32_utf8.h"
+#include "../../win32_utf8.h"
 #endif
 
-#include "../WDL/swell/swell.h"
+#include "../swell.h"
 
-#include "../WDL/wingui/wndsize.h"
+#include "../../wingui/wndsize.h"
 
 #include "resource.h"
 
@@ -189,11 +189,11 @@ int main(int argc, const char **argv)
 #endif
 
 
-#include "../WDL/swell/swell-dlggen.h"
+#include "../swell-dlggen.h"
 #include "res.rc_mac_dlg"
 #undef BEGIN
 #undef END
-#include "../WDL/swell/swell-menugen.h"
+#include "../swell-menugen.h"
 #include "res.rc_mac_menu"
 
 #endif
