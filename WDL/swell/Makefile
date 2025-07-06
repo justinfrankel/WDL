@@ -132,7 +132,7 @@ ifndef NOGDK
     else
       LINKEXTRA += -lX11 -lXi
       ifdef SWELL_SUPPORT_GTK
-        CFLAGS += -DSWELL_PRELOAD="libgtk+-3.so.0"
+        CFLAGS += -DSWELL_PRELOAD="libgtk-3.so.0"
       else
         CFLAGS += -DSWELL_PRELOAD="libgdk-3.so.0"
       endif
