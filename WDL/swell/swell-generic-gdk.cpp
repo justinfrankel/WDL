@@ -1781,6 +1781,12 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
     case GDK_KEY_PRESS:
     case GDK_KEY_RELEASE:
       swell_dlg_destroyspare();
+#ifdef SWELL_SUPPORT_IM
+      {
+        HWND hwnd = GetFocus();
+        im_update_candidates_location(hwnd); // update im candidates location
+      }
+#endif
       OnKeyEvent((GdkEventKey *)evt);
     break;
 #ifdef GDK_AVAILABLE_IN_3_4
