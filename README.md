@@ -8,13 +8,17 @@ If this project is useful to you, I'd appreciate a GitHub star or [Buy Me A Coff
 
 ### Main Feature
 
-<img src="https://github.com/user-attachments/assets/5183b588-2d5d-4e21-bde5-5d4464a23da9" width="350">
+<p align="left">
+  <img src="https://github.com/user-attachments/assets/aa16debe-3ffc-4af4-bdad-f845b7286cfd" width="650"><br>
+  <img src="https://github.com/user-attachments/assets/166706a6-50b6-491e-b9de-97bba156681c" width="320">
+  <img src="https://github.com/user-attachments/assets/06c6536e-eaa4-471f-a87f-f7e697e9ac8a" width="320"><br>
+  <img src="https://github.com/user-attachments/assets/2078a0f9-ccb7-4a80-bf7b-c7f8438ee8fe" width="650">
+</p>
 
 - Type and commit text by using Fcitx or IBus
 - Candidate box follows cursor position
 - Auto-scrolls horizontally when typing exceeds box width(pre-edit text as well)
 - Display pre-edit text
-
 
 ## Installation
 
