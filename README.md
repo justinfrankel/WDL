@@ -84,7 +84,7 @@ Example file: https://gist.github.com/wastee/09d935c40387079bd27a03e196e7e62a#fi
 | Archlinux | Fcitx5 | ✅ Working |
 | Fedora | IBus | ✅ Working |
 
-| Tested in REAPER       | State          |
+| Tested in REAPER       | Status          |
 |------------------------|----------------|
 | action list            | ✅ Working     |
 | find shortcut          | ❌ Exclude     |
