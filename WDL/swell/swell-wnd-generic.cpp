@@ -42,6 +42,10 @@
 
 #include "swell-dlggen.h"
 
+#ifdef SWELL_SUPPORT_IM
+#include "swell-im.h"
+#endif
+
 #define EDIT_CURSOR_BLINK_LEN 500
 #define EDIT_CURSOR_CYCLE_INTERVAL 3
 
@@ -2492,6 +2496,9 @@ static LRESULT WINAPI editWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_NCDESTROY:
       delete es;
       hwnd->m_private_data=0;
+#ifdef SWELL_SUPPORT_IM
+      im_free(hwnd);
+#endif
     break;
     case WM_CONTEXTMENU:
       {
@@ -2828,6 +2835,20 @@ again:
 
           if (multiline)
           {
+#ifdef SWELL_SUPPORT_IM
+            // multiline paint from buf / title->Get()
+            // sing line paint from title
+            const int ori_sel1 = sel1;
+            const int ori_sel2 = sel2; // For recovery sel1 & sel2
+            int sel1{};
+            int sel2{};
+            // WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
+
+            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, ori_sel1, ori_sel2, cursor_pos);
+            sel1 = preedit_result.sel1;
+            sel2 = preedit_result.sel2;
+            title = &preedit_result.title;
+#endif
             r.top+=2 - es->scroll_y;
             const char *buf = title->Get(), *buf_end = buf + title->GetLength();
             int bytepos = 0;
@@ -2916,6 +2937,21 @@ again:
           }
           else
           {
+#ifdef SWELL_SUPPORT_IM
+            const int ori_sel1 = sel1;
+            const int ori_sel2 = sel2; // For recovery sel1 & sel2
+            const int ori_cursor_pos = cursor_pos;
+            int sel1{};
+            int sel2{};
+            int cursor_pos{};
+            WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
+
+            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, ori_sel1, ori_sel2, ori_cursor_pos);
+            sel1 = preedit_result.sel1;
+            sel2 = preedit_result.sel2;
+            cursor_pos = preedit_result.cursor_pos; 
+            title = &preedit_result.title;
+#endif
             es->max_width = editControlPaintLine(ps.hdc, title->Get(), title->GetLength(),
                 do_cursor ? cursor_pos : -1, sel1, sel2, &r, DT_VCENTER);
 
@@ -3014,9 +3050,49 @@ again:
     return 0;
     case WM_KILLFOCUS:
       SendMessage(GetParent(hwnd),WM_COMMAND,(EN_KILLFOCUS<<16) | (hwnd->m_id&0xffff),(LPARAM)hwnd);
+#ifdef SWELL_SUPPORT_IM
+      {
+        GtkIMContext *im_context = (GtkIMContext *)GetProp(hwnd, "IM_CONTEXT");
+        if (im_context) {
+          gtk_im_context_focus_out(im_context);
+        }
+      }
+      break;
+#endif
     case WM_SETFOCUS:
       InvalidateRect(hwnd,NULL,FALSE);
+#ifdef SWELL_SUPPORT_IM
+      {
+        GtkIMContext *im_context = (GtkIMContext *)GetProp(hwnd, "IM_CONTEXT");
+        if (im_context) {
+          gtk_im_context_focus_in(im_context);
+        }
+      }
+      break;
+#endif
+    case WM_DESTROY:
+#ifdef SWELL_SUPPORT_IM
+      im_free(hwnd);
+#endif
     break;
+#ifdef SWELL_SUPPORT_IM
+    case WM_CHAR:
+      if (es && !(hwnd->m_style & ES_READONLY)) {
+        char b[8];
+        WDL_MakeUTFChar(b, wParam, sizeof(b));
+        es->deleteSelection(&hwnd->m_title);
+        int bytepos = utf8fs_charpos_to_bytepos(&hwnd->m_title, es->cursor_pos);
+        hwnd->m_title.Insert(b, bytepos);
+        es->cursor_pos++;
+        bool is_multiline = (hwnd->m_style & ES_MULTILINE) != 0;
+        bool is_word_wrap = (hwnd->m_style & (ES_MULTILINE|ES_AUTOHSCROLL)) == ES_MULTILINE;
+        es->autoScrollToOffset(hwnd, es->cursor_pos, is_multiline, is_word_wrap);
+        InvalidateRect(hwnd, NULL, FALSE);
+        SendMessage(GetParent(hwnd), WM_COMMAND,
+                    (EN_CHANGE << 16) | (hwnd->m_id & 0xffff), (LPARAM)hwnd);
+      }
+      return 0;
+#endif
   }
   return DefWindowProc(hwnd,msg,wParam,lParam);
 }
@@ -3543,6 +3619,9 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     case WM_NCDESTROY:
       hwnd->m_private_data=0;
       delete s;
+#ifdef SWELL_SUPPORT_IM
+      im_free(hwnd);
+#endif
     break;
     case WM_TIMER:
       if (wParam == 100)
@@ -3751,9 +3830,32 @@ popupMenu:
           if ((hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST)
           {
             r.right -= SWELL_UI_SCALE(buttonwid+2);
+#ifdef SWELL_SUPPORT_IM
+            cursor_pos = focused ?  utf8fs_charpos_to_bytepos(&hwnd->m_title,s->editstate.cursor_pos) : -1;
+
+            const int ori_sel1 = utf8fs_charpos_to_bytepos(&hwnd->m_title, s->editstate.sel1); 
+            const int ori_sel2 = utf8fs_charpos_to_bytepos(&hwnd->m_title, s->editstate.sel2); 
+            const int ori_cursor_pos = cursor_pos;
+            int sel1{};
+            int sel2{};
+            int cursor_pos{};
+            WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
+            HWND *ori_hwnd = &hwnd;
+
+            ImPreeditPaintResult preedit_result = im_preedit_paint(&s->editstate, *ori_hwnd, ori_sel1, ori_sel2, ori_cursor_pos);
+            sel1 = preedit_result.sel1;
+            sel2 = preedit_result.sel2;
+            cursor_pos = preedit_result.cursor_pos; 
+            title = &preedit_result.title;
+
+            editControlPaintLine(ps.hdc, title->Get(), title->GetLength(),
+                s->editstate.cursor_state!=0 ? cursor_pos : -1,
+                focused ? sel1 : -1, focused ? sel2 : -1, &r, DT_VCENTER);
+#else
             editControlPaintLine(ps.hdc, hwnd->m_title.Get(), hwnd->m_title.GetLength(),
                 s->editstate.cursor_state!=0 ? cursor_pos : -1,
                 focused ? s->editstate.sel1 : -1, focused ? s->editstate.sel2 : -1, &r, DT_VCENTER);
+#endif
           }
           else
           {
@@ -3831,9 +3933,52 @@ popupMenu:
       }
 
     return 0;
+#ifdef SWELL_SUPPORT_IM
+    case WM_CHAR:
+      if (s && (hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST &&
+          !(hwnd->m_style & ES_READONLY)) {
+        char b[8];
+        WDL_MakeUTFChar(b, wParam, sizeof(b));
+        s->editstate.deleteSelection(&hwnd->m_title);
+        int bytepos =
+            utf8fs_charpos_to_bytepos(&hwnd->m_title, s->editstate.cursor_pos);
+        hwnd->m_title.Insert(b, bytepos);
+        s->editstate.cursor_pos++;
+        bool is_multiline = (hwnd->m_style & ES_MULTILINE) != 0;
+        bool is_word_wrap = (hwnd->m_style & (ES_MULTILINE|ES_AUTOHSCROLL)) == ES_MULTILINE;
+        s->editstate.autoScrollToOffset(hwnd, s->editstate.cursor_pos, is_multiline, is_word_wrap);
+        InvalidateRect(hwnd, NULL, FALSE);
+        SendMessage(GetParent(hwnd), WM_COMMAND,
+                    (CBN_EDITCHANGE << 16) | (hwnd->m_id & 0xffff),
+                    (LPARAM)hwnd);
+      }
+      return 0;
+#endif
     case WM_SETFOCUS:
+#ifdef SWELL_SUPPORT_IM
+      {
+        GtkIMContext *im_context = (GtkIMContext *)GetProp(hwnd, "IM_CONTEXT");
+        if (im_context) {
+          gtk_im_context_focus_in(im_context);
+        }
+      }
+#endif
+      break;
     case WM_KILLFOCUS:
       InvalidateRect(hwnd,NULL,FALSE);
+#ifdef SWELL_SUPPORT_IM
+      {
+        GtkIMContext *im_context = (GtkIMContext *)GetProp(hwnd, "IM_CONTEXT");
+        if (im_context) {
+          gtk_im_context_focus_out(im_context);
+        }
+      }
+#endif
+    break;
+    case WM_DESTROY:
+#ifdef SWELL_SUPPORT_IM
+      im_free(hwnd);
+#endif
     break;
   }
   return DefWindowProc(hwnd,msg,wParam,lParam);
@@ -3877,6 +4022,9 @@ HWND SWELL_MakeEditField(int idx, int x, int y, int w, int h, int flags)
   hwnd->m_classname = "Edit";
   hwnd->m_wndproc(hwnd,WM_CREATE,0,0);
   if (m_doautoright) UpdateAutoCoords(tr);
+#ifdef SWELL_SUPPORT_IM
+  im_init(hwnd);
+#endif
   return hwnd;
 }
 
@@ -6288,6 +6436,9 @@ HWND SWELL_MakeCombo(int idx, int x, int y, int w, int h, int flags)
   hwnd->m_style = (flags & ~SWELL_NOT_WS_VISIBLE)|WS_CHILD;
   hwnd->m_classname = "combobox";
   hwnd->m_wndproc(hwnd,WM_CREATE,0,0);
+#ifdef SWELL_SUPPORT_IM
+  im_init(hwnd);
+#endif
   if (m_doautoright) UpdateAutoCoords(tr);
   return hwnd;
 }
