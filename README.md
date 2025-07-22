@@ -4,7 +4,9 @@ This project extends SWELL to support Linux input methods (IM), implementing pre
 
 All added code is contained within the `SWELL_SUPPORT_IM` macro definition.
 
-If this project is useful to you, I'd appreciate a GitHub star or [Buy Me A Coffee](https://www.buymeacoffee.com/teenux).
+I spent a lot of time to test and making it work properly. If this project is useful to you, I'd appreciate a GitHub star or [Buy Me A Coffee](https://www.buymeacoffee.com/teenux).
+
+Discuss in the official forum: https://forum.cockos.com/showthread.php?p=2880745
 
 ### Main Feature
 
