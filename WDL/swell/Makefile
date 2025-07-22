@@ -101,7 +101,7 @@ SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
              swell-generic-headless.o swell-generic-gdk.o \
-             swell-appstub-generic.o swell-modstub-generic.o 
+             swell-appstub-generic.o swell-modstub-generic.o swell-im.o
 
 LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
             lice_textnew.o lice_ico.o lice_bmp.o
@@ -139,6 +139,9 @@ ifndef NOGDK
     endif
   endif
   CFLAGS += -DSWELL_LICE_GDI
+  ifdef SWELL_SUPPORT_IM
+    CFLAGS += -DSWELL_SUPPORT_IM
+  endif
   OBJS += $(LICE_OBJS)
 
   ifndef NOFREETYPE
@@ -163,7 +166,7 @@ default: libSwell$(DLL_EXT)
 
 .PHONY: clean 
 
-SWELL_HEADERS=swell-dlggen.h swell-gdi-internalpool.h swell-menugen.h swell-types.h swell-functions.h swell-internal.h
+SWELL_HEADERS=swell-dlggen.h swell-gdi-internalpool.h swell-menugen.h swell-types.h swell-functions.h swell-internal.h swell-im.h
 
 swell.o: $(SWELL_HEADERS)
 swell-ini.o: $(SWELL_HEADERS)
