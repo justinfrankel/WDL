@@ -8402,7 +8402,7 @@ BOOL SWELL_IsStaticText(HWND hwnd)
 
 BOOL ShellExecute(HWND hwndDlg, const char *action,  const char *content1, const char *content2, const char *content3, int blah)
 {
-  const char *xdg = "/usr/bin/xdg-open";
+  const char *xdg = "xdg-open";
   const char *argv[3] = { NULL };
   char *tmp=NULL;
 
@@ -8452,8 +8452,8 @@ BOOL ShellExecute(HWND hwndDlg, const char *action,  const char *content1, const
   if (pid == 0) 
   {
     for (int x=0;argv[x];x++) argv[x] = strdup(argv[x]);
-    execv(argv[0],(char *const*)argv);
-    exit(0); // if execv fails for some reason
+    execvp(argv[0],(char *const*)argv);
+    exit(0); // if execvp fails for some reason
   }
   free(tmp);
   return pid>0;
