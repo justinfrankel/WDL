@@ -44,6 +44,9 @@ extern "C" {
 #include "../wdlcstring.h"
 #include "../wdlutf8.h"
 
+#ifdef SWELL_SUPPORT_IM
+#include "swell-im.h"
+#endif
 
 #if !defined(SWELL_TARGET_GDK_NO_CURSOR_HACK)
   #define SWELL_TARGET_GDK_CURSORHACK
@@ -1349,6 +1352,22 @@ static void OnKeyEvent(GdkEventKey *k)
   MSG msg = { hwnd, msgtype, kv, modifiers, };
   INT_PTR extra_flags = 0;
   if (DialogBoxIsActive()) extra_flags |= 1;
+#ifdef SWELL_SUPPORT_IM
+  // before SWELLAppMain TCP and MCP need it
+  if (im_hwnd_match(hwnd, "Edit") || im_hwnd_match(hwnd, "combobox"))
+  {
+    if (GetProp(hwnd, "IM_CONTEXT"))
+      if (gtk_im_context_filter_keypress((GtkIMContext *)GetProp(hwnd, "IM_CONTEXT"), k))
+      {
+        if (GetProp(hwnd, "IM_PREEDIT_STATE")) {
+          if (k->keyval == DEF_GKY(Left)) {
+          } else if (k->keyval == DEF_GKY(Right)) {
+          }
+        }
+        return;
+      }
+  }
+#endif
   if (SWELLAppMain(SWELLAPP_PROCESSMESSAGE,(INT_PTR)&msg,extra_flags)<=0)
     SendMessage(hwnd, msg.message, kv, modifiers);
 }
@@ -1762,6 +1781,12 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
     case GDK_KEY_PRESS:
     case GDK_KEY_RELEASE:
       swell_dlg_destroyspare();
+#ifdef SWELL_SUPPORT_IM
+      {
+        HWND hwnd = GetFocus();
+        im_update_candidates_location(hwnd); // update im candidates location
+      }
+#endif
       OnKeyEvent((GdkEventKey *)evt);
     break;
 #ifdef GDK_AVAILABLE_IN_3_4

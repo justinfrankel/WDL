@@ -161,6 +161,15 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
   // create dialog
   if (hwnd)
   {
+#ifdef SWELL_SUPPORT_IM
+    // Tag and Exclude the "find shortcut" hwnd in Action List
+    HWND the_focused_child = hwnd->m_focused_child;
+    if ((the_focused_child->m_style == 0x40001080) &&
+        (the_focused_child->m_exstyle == 0x00000000) &&
+        (strcmp(the_focused_child->m_classname, "Edit") == 0)) {
+      SetProp(the_focused_child, "IS_KEYFINDER", (HANDLE)1);
+    }
+#endif
     hwnd->Retain();
 
     void SWELL_OnNavigationFocus(HWND ch);
