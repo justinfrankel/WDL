@@ -22,14 +22,6 @@ void im_free(HWND hwnd);
 bool im_hwnd_match(HWND hwnd, const char* classname);
 void im_update_candidates_location(HWND hwnd);
 
-//-----------------------------------------------------------------------------
-// Text Editing and Rendering
-//-----------------------------------------------------------------------------
-static int editControlPaintLine(HDC hdc, const char *str, int str_len, int cursor_pos, 
-                              int sel1, int sel2, const RECT *r, int dtflags);
-static bool editGetCharPos(HDC hdc, const char *str, int singleline_len, int charpos, 
-                         int line_h, POINT *pt, int word_wrap, 
-                         __SWELL_editControlState *es, HWND hwnd);
 
 //-----------------------------------------------------------------------------
 // Pre-edit Text Handling

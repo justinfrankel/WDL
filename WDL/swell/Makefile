@@ -101,7 +101,7 @@ SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
              swell-generic-headless.o swell-generic-gdk.o \
-             swell-appstub-generic.o swell-modstub-generic.o swell-im.o
+             swell-appstub-generic.o swell-modstub-generic.o
 
 LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
             lice_textnew.o lice_ico.o lice_bmp.o
