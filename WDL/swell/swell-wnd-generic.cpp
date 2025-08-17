@@ -8992,9 +8992,8 @@ void im_update_candidates_location(HWND hwnd)
   int cursor_offset_x = 0; // cursor_pos x
   int cursor_offset_y = 0; // cursor_pos y
   int cursor_pos = 0;
-  __SWELL_ComboBoxInternalState *s;
   if (im_hwnd_match(hwnd, "combobox")) {
-    s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
+    __SWELL_ComboBoxInternalState *s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
     cursor_pos = s->editstate.cursor_pos;
     if (s->editstate.sel1 == 0) {
       cursor_pos = 0;
@@ -9024,6 +9023,7 @@ void im_update_candidates_location(HWND hwnd)
       int singleline_len = multiline ? -1 : title->GetLength();
 
       if (im_hwnd_match(hwnd, "combobox")) {
+        __SWELL_ComboBoxInternalState *s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
         if (editGetCharPos(hdc, title->Get(), singleline_len, cursor_pos,
                            line_h, &pt, wwrap, &s->editstate, hwnd)) {
           cursor_offset_x = pt.x;
