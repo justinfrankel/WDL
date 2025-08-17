@@ -166,7 +166,7 @@ default: libSwell$(DLL_EXT)
 
 .PHONY: clean 
 
-SWELL_HEADERS=swell-dlggen.h swell-gdi-internalpool.h swell-menugen.h swell-types.h swell-functions.h swell-internal.h swell-im.h
+SWELL_HEADERS=swell-dlggen.h swell-gdi-internalpool.h swell-menugen.h swell-types.h swell-functions.h swell-internal.h
 
 swell.o: $(SWELL_HEADERS)
 swell-ini.o: $(SWELL_HEADERS)

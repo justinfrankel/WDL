@@ -44,10 +44,6 @@ extern "C" {
 #include "../wdlcstring.h"
 #include "../wdlutf8.h"
 
-#ifdef SWELL_SUPPORT_IM
-#include "swell-im.h"
-#endif
-
 #if !defined(SWELL_TARGET_GDK_NO_CURSOR_HACK)
   #define SWELL_TARGET_GDK_CURSORHACK
 #endif

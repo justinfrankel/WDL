@@ -42,10 +42,6 @@
 
 #include "swell-dlggen.h"
 
-#ifdef SWELL_SUPPORT_IM
-#include "swell-im.h"
-#endif
-
 #define EDIT_CURSOR_BLINK_LEN 500
 #define EDIT_CURSOR_CYCLE_INTERVAL 3
 
