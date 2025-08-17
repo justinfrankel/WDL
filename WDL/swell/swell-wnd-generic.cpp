@@ -8894,13 +8894,13 @@ bool im_hwnd_match(HWND hwnd, const char* classname)
 static __SWELL_editControlState *swell_es_from_hwnd(HWND hwnd) // Get edit cursor
 {
   if (!hwnd)
-    return nullptr;
+    return NULL;
 
   if (!im_hwnd_match(hwnd, "Edit") && !im_hwnd_match(hwnd, "combobox"))
-    return nullptr;
+    return NULL;
 
   if (hwnd->m_hashaddestroy)
-    return nullptr;
+    return NULL;
 
   return (__SWELL_editControlState *)hwnd->m_private_data;
 }
@@ -8989,9 +8989,9 @@ void im_update_candidates_location(HWND hwnd)
   y -= SWELL_UI_SCALE(30);
 
   // Start to cal cursor offsets
-  int cursor_offset_x{}; // cursor_pos x
-  int cursor_offset_y{}; // cursor_pos y
-  int cursor_pos{};
+  int cursor_offset_x = 0; // cursor_pos x
+  int cursor_offset_y = 0; // cursor_pos y
+  int cursor_pos = 0;
   __SWELL_ComboBoxInternalState *s;
   if (im_hwnd_match(hwnd, "combobox")) {
     s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
@@ -9087,7 +9087,6 @@ void im_free(HWND hwnd) // Free resources related to im_context
 //-----------------------------------------------------------------------------
 ImPreeditPaintResult im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int sel1, int sel2, int cursor_pos)
 {
-  ImPreeditPaintResult result;
   const int ori_sel1 = sel1;
   const int ori_sel2 = sel2; // For recovery sel1 & sel2
   WDL_FastString *title = &hwnd->m_title;
@@ -9095,14 +9094,14 @@ ImPreeditPaintResult im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, i
 
   WDL_FastString temp_str;
   const char *original_text = title->Get(); // original text in edit field
-  int real_cursor_pos{}; // for es autoscroll, NOT byte, IS utf-8 char len
+  int real_cursor_pos = 0; // for es autoscroll, NOT byte, IS utf-8 char len
 
   bool preedit_state = (intptr_t)GetProp(hwnd, "IM_PREEDIT_STATE") ? true : false;
   if (preedit_state) {
     const char *preedit_text = (const char *)GetProp(hwnd, "IM_PREEDIT_TEXT");
     int preedit_byte_len = preedit_text ? strlen(preedit_text) : 0; // selection use byte NOT str len
     int preedit_len = preedit_text ? WDL_utf8_get_charlen(preedit_text) : 0; // selection use byte NOT str len
-    int scroll_pos{};
+    int scroll_pos = 0;
     bool is_multiline = (hwnd->m_style & ES_MULTILINE) != 0;
     bool is_word_wrap =
         (hwnd->m_style & (ES_MULTILINE | ES_AUTOHSCROLL)) == ES_MULTILINE;
@@ -9141,7 +9140,8 @@ ImPreeditPaintResult im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, i
     real_cursor_pos = cursor_pos;
     title = &saved_title;
   }
-  return {sel1, sel2, real_cursor_pos, title};
+  ImPreeditPaintResult result = { sel1, sel2, real_cursor_pos, title };
+  return result;
 }
 #endif // SWELL_SUPPORT_IM
 
