@@ -1413,8 +1413,9 @@ struct ImPreeditPaintResult {
     WDL_FastString title;
 };
 
-ImPreeditPaintResult im_preedit_paint(struct __SWELL_editControlState *es, HWND hwnd,
-                                     int sel1, int sel2, int cursor_pos);
+void im_preedit_paint(struct __SWELL_editControlState *es, HWND hwnd,
+                                     int sel1, int sel2, int cursor_pos,
+                                     ImPreeditPaintResult &result);
 
 #endif // SWELL_SUPPORT_IM
 

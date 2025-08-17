@@ -2835,7 +2835,8 @@ again:
             // multiline paint from buf / title->Get()
             // sing line paint from title
 
-            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos);
+            ImPreeditPaintResult preedit_result;
+            im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos, preedit_result);
             sel1 = preedit_result.sel1;
             sel2 = preedit_result.sel2;
             title = &preedit_result.title;
@@ -2929,7 +2930,8 @@ again:
           else
           {
 #ifdef SWELL_SUPPORT_IM
-            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos);
+            ImPreeditPaintResult preedit_result;
+            im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos, preedit_result);
             sel1 = preedit_result.sel1;
             sel2 = preedit_result.sel2;
             cursor_pos = preedit_result.cursor_pos; 
@@ -3821,7 +3823,8 @@ popupMenu:
             WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
             HWND *ori_hwnd = &hwnd;
 
-            ImPreeditPaintResult preedit_result = im_preedit_paint(&s->editstate, *ori_hwnd, ori_sel1, ori_sel2, cursor_pos);
+            ImPreeditPaintResult preedit_result;
+            im_preedit_paint(&s->editstate, *ori_hwnd, ori_sel1, ori_sel2, cursor_pos, preedit_result);
             const int sel1 = preedit_result.sel1;
             const int sel2 = preedit_result.sel2;
             cursor_pos = preedit_result.cursor_pos; 
@@ -9064,7 +9067,7 @@ void im_free(HWND hwnd) // Free resources related to im_context
 //-----------------------------------------------------------------------------
 // Paint when preedit text typing
 //-----------------------------------------------------------------------------
-ImPreeditPaintResult im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int sel1, int sel2, int cursor_pos)
+void im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int sel1, int sel2, int cursor_pos, ImPreeditPaintResult &result)
 {
   const int ori_sel1 = sel1;
   const int ori_sel2 = sel2; // For recovery sel1 & sel2
@@ -9119,8 +9122,10 @@ ImPreeditPaintResult im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, i
     real_cursor_pos = cursor_pos;
     title = &saved_title;
   }
-  ImPreeditPaintResult result = { sel1, sel2, real_cursor_pos, title };
-  return result;
+  result.sel1 = sel1;
+  result.sel2 = sel2;
+  result.cursor_pos = real_cursor_pos;
+  result.title.Set(title->Get());
 }
 #endif // SWELL_SUPPORT_IM
 
