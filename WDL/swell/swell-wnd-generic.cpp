@@ -2827,9 +2827,9 @@ again:
           r.left+=2 - es->scroll_x; r.right-=2;
 
           const bool do_cursor = es->cursor_state!=0;
-          const int cursor_pos = focused ?  utf8fs_charpos_to_bytepos(title,es->cursor_pos) : -1;
-          const int sel1 = es->sel1>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel1) : -1;
-          const int sel2 = es->sel2>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel2) : -1;
+          int cursor_pos = focused ?  utf8fs_charpos_to_bytepos(title,es->cursor_pos) : -1;
+          int sel1 = es->sel1>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel1) : -1;
+          int sel2 = es->sel2>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel2) : -1;
 
           const bool multiline = (hwnd->m_style & ES_MULTILINE) != 0;
 
@@ -2838,13 +2838,8 @@ again:
 #ifdef SWELL_SUPPORT_IM
             // multiline paint from buf / title->Get()
             // sing line paint from title
-            const int ori_sel1 = sel1;
-            const int ori_sel2 = sel2; // For recovery sel1 & sel2
-            int sel1{};
-            int sel2{};
-            // WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
 
-            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, ori_sel1, ori_sel2, cursor_pos);
+            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos);
             sel1 = preedit_result.sel1;
             sel2 = preedit_result.sel2;
             title = &preedit_result.title;
@@ -2938,15 +2933,7 @@ again:
           else
           {
 #ifdef SWELL_SUPPORT_IM
-            const int ori_sel1 = sel1;
-            const int ori_sel2 = sel2; // For recovery sel1 & sel2
-            const int ori_cursor_pos = cursor_pos;
-            int sel1{};
-            int sel2{};
-            int cursor_pos{};
-            WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
-
-            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, ori_sel1, ori_sel2, ori_cursor_pos);
+            ImPreeditPaintResult preedit_result = im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos);
             sel1 = preedit_result.sel1;
             sel2 = preedit_result.sel2;
             cursor_pos = preedit_result.cursor_pos; 
@@ -3835,16 +3822,12 @@ popupMenu:
 
             const int ori_sel1 = utf8fs_charpos_to_bytepos(&hwnd->m_title, s->editstate.sel1); 
             const int ori_sel2 = utf8fs_charpos_to_bytepos(&hwnd->m_title, s->editstate.sel2); 
-            const int ori_cursor_pos = cursor_pos;
-            int sel1{};
-            int sel2{};
-            int cursor_pos{};
             WDL_FastString *title = &hwnd->m_title; // This is already defined in the above code. However, preedited paint function will cover the hwnd
             HWND *ori_hwnd = &hwnd;
 
-            ImPreeditPaintResult preedit_result = im_preedit_paint(&s->editstate, *ori_hwnd, ori_sel1, ori_sel2, ori_cursor_pos);
-            sel1 = preedit_result.sel1;
-            sel2 = preedit_result.sel2;
+            ImPreeditPaintResult preedit_result = im_preedit_paint(&s->editstate, *ori_hwnd, ori_sel1, ori_sel2, cursor_pos);
+            const int sel1 = preedit_result.sel1;
+            const int sel2 = preedit_result.sel2;
             cursor_pos = preedit_result.cursor_pos; 
             title = &preedit_result.title;
 
