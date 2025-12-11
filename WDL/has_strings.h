@@ -92,7 +92,7 @@ WDL_HASSTRINGS_EXPORT int hasStrings_utf8cmp(const unsigned char * const a, cons
     // if ca is A, and cb is a, cb will be 'a'-'A'
     if (cb)
     {
-      if (cb != 'a'-'A')
+      if (cb != 'a'-'A' || ca >= 0x80)
       {
         if (ca < 0x80) return -ca;
 
