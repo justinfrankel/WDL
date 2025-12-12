@@ -92,10 +92,12 @@ WDL_HASSTRINGS_EXPORT int hasStrings_utf8cmp(const unsigned char * const a, cons
     // if ca is A, and cb is a, cb will be 'a'-'A'
     if (cb)
     {
-      if (cb != 'a'-'A' || ca >= 0x80)
+      if (ca < 0x80)
       {
-        if (ca < 0x80) return -ca;
-
+        if (cb != 'a'-'A' || ca < 'A' || ca > 'Z') return -ca;
+      }
+      else
+      {
         if (WDL_IS_UTF8_2BYTE_PREFIX(ca))
         {
           unsigned char b1 = ca, b2 = a[aidx+1];
@@ -137,7 +139,6 @@ WDL_HASSTRINGS_EXPORT int hasStrings_utf8cmp(const unsigned char * const a, cons
         }
         else return -ca;
       }
-      else if (ca < 'A' || ca > 'Z') return -ca;
     }
     ++aidx;
     ++b;
