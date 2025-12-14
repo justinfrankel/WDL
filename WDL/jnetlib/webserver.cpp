@@ -138,6 +138,7 @@ int WebServerBaseClass::run_connection(WS_conInst *con)
   }
   if (s < 3)
   {
+    con->m_req_cnt++;
     con->m_pagegen=onConnection(&con->m_serv,con->m_port);
     return 0;
   }
