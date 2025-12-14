@@ -169,7 +169,6 @@ int WebServerBaseClass::run_connection(WS_conInst *con)
     }
     return l > 0 ? 0 : -2; // -2 = no more data to send, but all is well
   }
-  if (con->m_serv.canKeepAlive()) return -1;
   return 1; // we're done by this point
 }
 
