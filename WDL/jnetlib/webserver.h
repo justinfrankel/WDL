@@ -109,7 +109,7 @@ public:
   // if you want to manually attach a connection, use this:
   // you need to specify the port it came in on so the web server can build
   // links
-  void attachConnection(JNL_IConnection *con, int port);
+  virtual void attachConnection(JNL_IConnection *con, int port);
 
   // derived classes need to override this one =)
   virtual IPageGenerator *onConnection(JNL_HTTPServ *serv, int port)=0;
