@@ -1732,7 +1732,9 @@ void WDL_UTF8_HookTabCtrl(HWND h)
 void WDL_UTF8_ListViewConvertDispInfoToW(void *_di)
 {
   NMLVDISPINFO *di = (NMLVDISPINFO *)_di;
-  if (di && (di->item.mask & LVIF_TEXT) && di->item.pszText && di->item.cchTextMax>0)
+  if (di &&
+      di->hdr.code == LVN_GETDISPINFOW &&
+      (di->item.mask & LVIF_TEXT) && di->item.pszText && di->item.cchTextMax>0)
   {
     static struct lv_tmpbuf_state s_buf;
     const char *src = (const char *)di->item.pszText;

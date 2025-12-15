@@ -305,7 +305,7 @@ typedef char wdl_utf8_chk_stat_types_assert_failed[sizeof(struct stat) == sizeof
   #undef fopen
 #endif
 
-// compat defines for when UTF disabled
+// compat defines for when UTF-8 disabled, or on non-win32
 #define DrawTextUTF8 DrawText
 #define statUTF8 stat
 #define fopenUTF8 fopen
@@ -315,7 +315,7 @@ typedef char wdl_utf8_chk_stat_types_assert_failed[sizeof(struct stat) == sizeof
 #define WDL_UTF8_HookListBox(x) do { if (WDL_NORMALLY(x)) { } } while(0)
 #define WDL_UTF8_HookTreeView(x) do { if (WDL_NORMALLY(x)) { } } while(0)
 #define WDL_UTF8_HookTabCtrl(x) do { if (WDL_NORMALLY(x)) { } } while(0)
-#define WDL_UTF8_ListViewConvertDispInfoToW(x)
+#define WDL_UTF8_ListViewConvertDispInfoToW(x) do { if (WDL_NORMALLY(x) && WDL_NOT_NORMALLY((x)->hdr.code == LVN_GETDISPINFOW)) { } } while(0)
 
 #define LB_GETTEXTUTF8 LB_GETTEXT
 #define LB_GETTEXTLENUTF8 LB_GETTEXTLEN
