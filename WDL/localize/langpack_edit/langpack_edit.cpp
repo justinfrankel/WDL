@@ -1360,9 +1360,7 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
           return 0;
           case LVN_GETDISPINFO:
-#ifdef _WIN32
           case LVN_GETDISPINFOW:
-#endif
           {
             NMLVDISPINFO *lpdi = (NMLVDISPINFO*) lParam;
             if (lpdi->item.mask & LVIF_TEXT)
@@ -1371,10 +1369,7 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 snprintf(lpdi->item.pszText,lpdi->item.cchTextMax,"%d",lpdi->item.iItem+1);
               else
                 lpdi->item.pszText = (char*) g_editor.get_row_value(lpdi->item.iItem, lpdi->item.iSubItem);
-#ifdef _WIN32
-              if (lv->hdr.code == LVN_GETDISPINFOW)
-                WDL_UTF8_ListViewConvertDispInfoToW(lpdi);
-#endif
+              WDL_UTF8_ListViewConvertDispInfoToW(lpdi);
             }
           }
         }
