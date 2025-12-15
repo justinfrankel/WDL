@@ -829,6 +829,7 @@ __attribute__ ((visibility ("default"))) BOOL WINAPI DllMain(HINSTANCE hInstDLL,
 #define LVN_ITEMCHANGED         (LVN_FIRST-1)
 #define LVN_ODFINDITEM          (LVN_FIRST-52)
 #define LVN_GETDISPINFO         (LVN_FIRST-50)
+#define LVN_GETDISPINFOW        (LVN_FIRST-77)
 
 #define LVS_EX_GRIDLINES 0x01
 #define LVS_EX_SUBITEMIMAGES 0x02
