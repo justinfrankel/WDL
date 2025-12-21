@@ -1266,6 +1266,7 @@ typedef struct tagNMLVCUSTOMDRAW
 #define VK_HELP           0x2F
 
 #define VK_LWIN           0x5B
+#define VK_RWIN           0x5C
 
 #define VK_NUMPAD0        0x60
 #define VK_NUMPAD1        0x61
