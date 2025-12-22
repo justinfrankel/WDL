@@ -34,7 +34,7 @@ int MetadataToArray(WDL_StringKeyedArray<char*> *metadata, WDL_TypedBuf<const ch
   for (int i=0; i < metadata->GetSize(); ++i)
   {
     const char *k, *v=metadata->Enumerate(i, &k);
-    if (k && v)
+    if (k && v && v[0])
     {
       metadata_arr->Add(k);
       metadata_arr->Add(v);
