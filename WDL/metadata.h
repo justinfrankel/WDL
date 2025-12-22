@@ -592,12 +592,6 @@ int PackIXMLChunk(WDL_HeapBuf *hb, WDL_StringKeyedArray<char*> *metadata, int pa
       val=v;
     }
 
-    if (!strncmp(val, "#junk#", 6))
-    {
-      junklen += 11+2*strlen(key)+strlen(val);
-      continue;
-    }
-
     ixml.Append("<");
     XMLCompliantAppend(&ixml, key, false);
     ixml.Append(">");
