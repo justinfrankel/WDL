@@ -37,7 +37,9 @@
 #ifndef SWELL_NO_METAL
 #undef min
 #undef max
+#ifdef __SSE__
 #include <simd/simd.h>
+#endif
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
 #include "../assocarray.h"
