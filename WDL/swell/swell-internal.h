@@ -778,7 +778,16 @@ SWELL_IMPLEMENT_GETOSXVERSION int SWELL_GetOSXVersion()
   {
     if (NSAppKitVersionNumber >= 1266.0)
     {
-      if (NSAppKitVersionNumber >= 2487.0)
+      if (NSAppKitVersionNumber >= 2600.0)
+      {
+        v = (int)(NSAppKitVersionNumber/100.0);
+        v = ((v/10) << 12) + ((v%10) << 8); // convert 26 to 0x2600
+      }
+      else if (NSAppKitVersionNumber >= 2500.0)
+        v = 0x1500;
+      else if (NSAppKitVersionNumber >= 2487.0)
+        v = 0x1400;
+      else if (NSAppKitVersionNumber >= 2487.0)
         v = 0x1400;
       else if (NSAppKitVersionNumber >= 2299.0)
         v = 0x1300;
