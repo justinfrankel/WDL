@@ -86,6 +86,14 @@ static void wdl_utf8_correctlongpath(WCHAR *buf)
 static ATOM s_combobox_atom;
 #define WDL_UTF8_OLDPROCPROP "WDLUTF8OldProc"
 
+#ifdef _DEBUG
+static int wdl_utf8_validate_classname(HWND h, const char *n)
+{
+  char buf[128];
+  return !h || (GetClassName(h,buf,sizeof(buf)) && !strcmp(buf,n));
+}
+#endif
+
 int GetWindowTextUTF8(HWND hWnd, LPTSTR lpString, int nMaxCount)
 {
   if (WDL_NOT_NORMALLY(!lpString || nMaxCount < 1)) return 0;
@@ -1452,6 +1460,7 @@ static LRESULT WINAPI cbedit_newProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 
 void WDL_UTF8_HookListBox(HWND h)
 {
+  WDL_ASSERT(wdl_utf8_validate_classname(h,"ListBox") || wdl_utf8_validate_classname(h,"ComboBox"));
   if (WDL_NOT_NORMALLY(!h) ||
     #ifdef WDL_SUPPORT_WIN9X
       GetVersion()>=0x80000000||
@@ -1697,6 +1706,7 @@ static LRESULT WINAPI lv_newProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 
 void WDL_UTF8_HookListView(HWND h)
 {
+  WDL_ASSERT(wdl_utf8_validate_classname(h,"SysListView32"));
   if (WDL_NOT_NORMALLY(!h) ||
     #ifdef WDL_SUPPORT_WIN9X
       GetVersion()>=0x80000000||
@@ -1709,6 +1719,7 @@ void WDL_UTF8_HookListView(HWND h)
 
 void WDL_UTF8_HookTreeView(HWND h)
 {
+  WDL_ASSERT(wdl_utf8_validate_classname(h,"SysTreeView32"));
   if (WDL_NOT_NORMALLY(!h) ||
     #ifdef WDL_SUPPORT_WIN9X
       GetVersion()>=0x80000000||
@@ -1720,6 +1731,7 @@ void WDL_UTF8_HookTreeView(HWND h)
 
 void WDL_UTF8_HookTabCtrl(HWND h)
 {
+  WDL_ASSERT(wdl_utf8_validate_classname(h,"SysTabControl32"));
   if (WDL_NOT_NORMALLY(!h) ||
     #ifdef WDL_SUPPORT_WIN9X
       GetVersion()>=0x80000000||
