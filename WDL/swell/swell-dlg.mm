@@ -1109,14 +1109,11 @@ static id<MTLDevice> mtl_def_device()
     m_paintctx_used=1;
     ps->hdc = m_paintctx_hdc;
     ps->fErase=false;
-    NSRECT_TO_RECT(&ps->rcPaint,m_paintctx_rect);
 
-    // should NC_CALCSIZE to convert, but this will be good enough to fix this small scrollbar overdraw bug
-    RECT r;
+    RECT r,r2;
+    NSRECT_TO_RECT(&r2,m_paintctx_rect);
     GetClientRect((HWND)self,&r);
-    if (ps->rcPaint.right > r.right) ps->rcPaint.right = r.right;
-    if (ps->rcPaint.bottom > r.bottom) ps->rcPaint.bottom = r.bottom;
-    
+    IntersectRect(&ps->rcPaint, &r2, &r);
   }
 }
 
