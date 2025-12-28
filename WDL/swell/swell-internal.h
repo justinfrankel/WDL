@@ -459,6 +459,7 @@ typedef struct WindowPropRec
 - (void) setEnabledSwellNoFocus;
 - (void) setEnabled:(BOOL)en;
 - (BOOL) isEnabled;
+- (BOOL) clipsToBounds;
 -(const char *)getSwellClass;
 
 // NSAccessibility

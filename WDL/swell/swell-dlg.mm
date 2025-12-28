@@ -698,6 +698,11 @@ static id<MTLDevice> mtl_def_device()
   return m_wndproc ? m_wndproc((HWND)self,msg,wParam,lParam) : 0;
 }
 
+- (BOOL) clipsToBounds
+{
+  return YES;
+}
+
 - (BOOL) isEnabled
 {
   return m_enabled;
