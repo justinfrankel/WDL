@@ -559,7 +559,7 @@ typedef struct WindowPropRec
 
 #ifndef SWELL_NO_METAL
 void swell_removeMetalDirty(SWELL_hwndChild *slf);
-void swell_updateAllMetalDirty(void);
+void swell_updateAllMetalDirty(HWND h=NULL);
 void swell_addMetalDirty(SWELL_hwndChild *slf, const RECT *r, bool isReleaseDC=false);
 HDC SWELL_CreateMetalDC(SWELL_hwndChild *);
 #endif

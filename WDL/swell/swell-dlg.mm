@@ -4413,7 +4413,7 @@ int SWELL_EnableMetal(HWND hwnd, int mode)
 }
 
 
-void swell_updateAllMetalDirty() // run from a timer, or called by UpdateWindow()
+void swell_updateAllMetalDirty(HWND hForce) // run from a timer, or called by UpdateWindow()
 {
 #ifndef SWELL_NO_METAL
   if (s_mtl_in_update || !s_mtl_dirty_list.GetSize()) return;
@@ -4438,7 +4438,10 @@ void swell_updateAllMetalDirty() // run from a timer, or called by UpdateWindow(
       NSUInteger (*send_msg)(id, SEL) = (NSUInteger (*)(id, SEL))objc_msgSend;
       lw_occluded = w && !(send_msg(w, @selector(occlusionState))&2);
     }
-    if (lw_occluded) continue;
+    if (lw_occluded)
+    {
+      if ((HWND)slf != hForce) continue;
+    }
 
     const RECT tr = slf->m_metal_in_needref_rect;
     s_mtl_dirty_list.Delete(x);
