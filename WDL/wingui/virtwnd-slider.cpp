@@ -751,6 +751,8 @@ int WDL_VirtualSlider::OnMouseDown(int xpos, int ypos)
   double move_offset = 0.0;
   bool clickedHandle = ProcessMouseClick(xpos, ypos, &wantKnob, &pos, &move_offset);
 
+  if (!clickedHandle && !WDL_STYLE_AllowSliderClickOutsideHandle(this)) return 0;
+
   m_needflush=0;
   if (m__iaccess) m__iaccess->OnFocused();
 
@@ -1043,6 +1045,10 @@ void WDL_VirtualSlider::OnMouseUp(int xpos, int ypos)
 bool WDL_VirtualSlider::OnMouseDblClick(int xpos, int ypos)
 {
   if (m_grayed) return false;
+
+  // maybe?
+  bool clickedHandle = ProcessMouseClick(xpos, ypos, NULL, NULL, NULL);
+  if (!clickedHandle && !WDL_STYLE_AllowSliderClickOutsideHandle(this)) return 0;
 
   if (m_dblclickmsg)
   {
