@@ -306,6 +306,8 @@ class WDL_VirtualSlider : public WDL_VWnd
     bool m_grayed;
     bool m_is_knob;
 
+    bool ProcessMouseClick(int xpos, int ypos,  bool *wantKnob, int *pos, double *moveOffset); // returns true if handle clicked
+
   public:
     int (*calculate_slider_position)(WDL_VirtualSlider *ctl, void *ctx); // if set, this will be called from paint (unless captured)
     void *calculate_slider_position_ctx;
