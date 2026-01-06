@@ -627,6 +627,17 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("SysTreeView32")
 }
 
 
+- (NSRect)rectOfColumn:(NSInteger)column
+{
+  NSRect r = [super rectOfColumn:column];
+  if (column == 0 && r.origin.x > 1.0)
+  {
+    r.size.width += r.origin.x;
+    r.origin.x = 1.0;
+    r.size.width -= r.origin.x;
+  }
+  return r;
+}
 
 
 @end
@@ -1212,6 +1223,18 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL( m_lbMode ? "SysListView32_LB" : "SysListView
 -(void)onSwellCommand:(int)cmd
 {
   // ignore commands
+}
+
+- (NSRect)rectOfColumn:(NSInteger)column
+{
+  NSRect r = [super rectOfColumn:column];
+  if (column == 0 && r.origin.x > 1.0)
+  {
+    r.size.width += r.origin.x;
+    r.origin.x = 1.0;
+    r.size.width -= r.origin.x;
+  }
+  return r;
 }
 
 @end
