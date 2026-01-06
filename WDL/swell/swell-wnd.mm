@@ -345,7 +345,7 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("SysTreeView32")
   if ((self = [super init]))
   {
     [self setRowHeight:18];
-    [self setIntercellSpacing:NSMakeSize(12, 2)];
+    [self setIntercellSpacing:NSMakeSize(3, 2)];
     m_fakerightmouse=false;
     m_items=new WDL_PtrList<HTREEITEM__>;
     m_fgColor=0;
@@ -669,7 +669,7 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL( m_lbMode ? "SysListView32_LB" : "SysListView
   if ((self = [super init]))
   {
     [self setRowHeight:18];
-    [self setIntercellSpacing:NSMakeSize(12, 2)];
+    [self setIntercellSpacing:NSMakeSize(3, 2)];
     m_subitem_images = false;
     m_selColors=0;
     m_fgColor = 0;
