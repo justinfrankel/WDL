@@ -988,8 +988,82 @@ int statUTF8(const char *filename, struct stat *buffer)
   return _stat(filename,(struct _stat*)buffer);
 }
 
+
+#if defined(_MSC_VER) && _MSC_VER >= 1400 && _MSC_VER < 1500 && defined(_MT) && !defined(_DLL)
+
+struct _tiddata {
+    unsigned long   _tid;       /* thread ID */
+
+
+    uintptr_t _thandle;         /* thread handle */
+
+    int     _terrno;            /* errno value */
+    unsigned long   _tdoserrno; /* _doserrno value */
+    unsigned int    _fpds;      /* Floating Point data segment */
+    unsigned long   _holdrand;  /* rand() seed value */
+    char *      _token;         /* ptr to strtok() token */
+    wchar_t *   _wtoken;        /* ptr to wcstok() token */
+    unsigned char * _mtoken;    /* ptr to _mbstok() token */
+
+    /* following pointers get malloc'd at runtime */
+    char *      _errmsg;        /* ptr to strerror()/_strerror() buff */
+    wchar_t *   _werrmsg;       /* ptr to _wcserror()/__wcserror() buff */
+    char *      _namebuf0;      /* ptr to tmpnam() buffer */
+    wchar_t *   _wnamebuf0;     /* ptr to _wtmpnam() buffer */
+    char *      _namebuf1;      /* ptr to tmpfile() buffer */
+    wchar_t *   _wnamebuf1;     /* ptr to _wtmpfile() buffer */
+    char *      _asctimebuf;    /* ptr to asctime() buffer */
+    wchar_t *   _wasctimebuf;   /* ptr to _wasctime() buffer */
+    void *      _gmtimebuf;     /* ptr to gmtime() structure */
+    char *      _cvtbuf;        /* ptr to ecvt()/fcvt buffer */
+    unsigned char _con_ch_buf[MB_LEN_MAX];
+                                /* ptr to putch() buffer */
+    unsigned short _ch_buf_used;   /* if the _con_ch_buf is used */
+
+    /* following fields are needed by _beginthread code */
+    void *      _initaddr;      /* initial user thread address */
+    void *      _initarg;       /* initial user thread argument */
+
+    /* following three fields are needed to support signal handling and
+     * runtime errors */
+    void *      _pxcptacttab;   /* ptr to exception-action table */
+    void *      _tpxcptinfoptrs; /* ptr to exception info pointers */
+    int         _tfpecode;      /* float point exception code */
+
+    /* pointer to the copy of the multibyte character information used by
+     * the thread */
+    pthreadmbcinfo  ptmbcinfo;
+
+    /* pointer to the copy of the locale informaton used by the thead */
+    pthreadlocinfo  ptlocinfo;
+    int         _ownlocale;     /* if 1, this thread owns its own locale */
+
+    // there is a lot more but we don't care much
+};
+
+
+typedef struct _tiddata * _ptiddata;
+
+_ptiddata _getptd_noexit(void);
+int __init_time(threadlocinfo *_LocInfo);
+
+static void WDL_UTF8_win32_crthooks()
+{
+  // override UTF-8 and regenerate date locale info
+  _ptiddata ptd = _getptd_noexit();
+  if (ptd && ptd->ptlocinfo && ptd->ptlocinfo->lc_codepage != CP_UTF8)
+  {
+    ptd->ptlocinfo->lc_codepage = CP_UTF8;
+    __init_time(ptd->ptlocinfo);
+  }
+}
+#define WDL_UTF8_HOOKLOCALE
+#endif
+
+
 size_t strftimeUTF8(char *buf, size_t maxsz, const char *fmt, const struct tm *timeptr)
 {
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
   if (buf && fmt && maxsz>0 AND_IS_NOT_WIN9X)
   {
     MBTOWIDE(wfmt, fmt);
@@ -1008,13 +1082,17 @@ size_t strftimeUTF8(char *buf, size_t maxsz, const char *fmt, const struct tm *t
     MBTOWIDE_FREE(wfmt);
     WIDETOMB_FREE(wbuf);
   }
+#endif
+
+#ifdef WDL_UTF8_HOOKLOCALE
+   WDL_UTF8_win32_crthooks();
+#endif
+
 #ifdef strftime
 #undef strftime
 #endif
   return strftime(buf,maxsz,fmt,timeptr);
-#if !defined(_MSC_VER) || _MSC_VER >= 1800
-  #define strftime(a,b,c,d) strftimeUTF8(a,b,c,d)
-#endif
+#define strftime(a,b,c,d) strftimeUTF8(a,b,c,d)
 }
 
 LPSTR GetCommandParametersUTF8()
