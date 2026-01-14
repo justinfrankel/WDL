@@ -1012,7 +1012,9 @@ size_t strftimeUTF8(char *buf, size_t maxsz, const char *fmt, const struct tm *t
 #undef strftime
 #endif
   return strftime(buf,maxsz,fmt,timeptr);
-#define strftime(a,b,c,d) strftimeUTF8(a,b,c,d)
+#if !defined(_MSC_VER) || _MSC_VER >= 1800
+  #define strftime(a,b,c,d) strftimeUTF8(a,b,c,d)
+#endif
 }
 
 LPSTR GetCommandParametersUTF8()
