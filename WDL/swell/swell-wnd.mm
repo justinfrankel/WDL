@@ -39,6 +39,8 @@
 #define SWELL_INTERNAL_HTREEITEM_IMPL
 #include "swell-internal.h"
 
+#define SWELL_LISTTREEVIEW_MAX_LEFT_PAD 4.0
+
 static bool SWELL_NeedModernListViewHacks()
 {
 #ifdef __LP64__
@@ -630,10 +632,10 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL("SysTreeView32")
 - (NSRect)rectOfColumn:(NSInteger)column
 {
   NSRect r = [super rectOfColumn:column];
-  if (column == 0 && r.origin.x > 1.0)
+  if (column == 0 && r.origin.x > SWELL_LISTTREEVIEW_MAX_LEFT_PAD)
   {
     r.size.width += r.origin.x;
-    r.origin.x = 1.0;
+    r.origin.x = SWELL_LISTTREEVIEW_MAX_LEFT_PAD;
     r.size.width -= r.origin.x;
   }
   return r;
@@ -1228,10 +1230,10 @@ STANDARD_CONTROL_NEEDSDISPLAY_IMPL( m_lbMode ? "SysListView32_LB" : "SysListView
 - (NSRect)rectOfColumn:(NSInteger)column
 {
   NSRect r = [super rectOfColumn:column];
-  if (column == 0 && r.origin.x > 1.0)
+  if (column == 0 && r.origin.x > SWELL_LISTTREEVIEW_MAX_LEFT_PAD)
   {
     r.size.width += r.origin.x;
-    r.origin.x = 1.0;
+    r.origin.x = SWELL_LISTTREEVIEW_MAX_LEFT_PAD;
     r.size.width -= r.origin.x;
   }
   return r;
