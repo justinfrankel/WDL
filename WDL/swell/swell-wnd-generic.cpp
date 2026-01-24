@@ -8385,8 +8385,33 @@ BOOL EnumChildWindows(HWND hwnd, BOOL (*cwEnumFunc)(HWND,LPARAM),LPARAM lParam)
   }
   return TRUE;
 }
+
 void SWELL_GetDesiredControlSize(HWND hwnd, RECT *r)
 {
+  if (WDL_NOT_NORMALLY(!hwnd)) return;
+  bool isbutton = !stricmp(hwnd->m_classname,"Button") &&
+    !(hwnd->m_style & BS_GROUPBOX);
+  bool isstatic = !isbutton && !stricmp(hwnd->m_classname,"Static");
+
+  if (isbutton || isstatic)
+  {
+    const int sf = hwnd->m_style & 0xf;
+    const bool ischk = isbutton && (sf == BS_AUTO3STATE ||
+                                    sf == BS_AUTOCHECKBOX ||
+                                    sf == BS_AUTORADIOBUTTON);
+    const int chksz = SWELL_UI_SCALE(12 + 6);
+
+    RECT r2 = {0,};
+    HDC hdc = GetDC(hwnd);
+    DrawText(hdc,hwnd->m_title.Get(),-1,&r2,DT_CALCRECT);
+    ReleaseDC(hwnd,hdc);
+    if (isbutton)
+     r->right = r2.right + SWELL_UI_SCALE(6) + (ischk ? chksz : 0);
+    else if (isstatic)
+     r->right = r2.right + SWELL_UI_SCALE(4);
+    r->bottom = r2.bottom;
+  }
+
 }
 
 BOOL SWELL_IsGroupBox(HWND hwnd)
