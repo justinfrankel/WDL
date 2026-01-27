@@ -282,7 +282,10 @@ WDL_HASSTRINGS_EXPORT bool WDL_hasStringsEx2(const char **name_list, int name_li
                 while (*p && *p != ' ' && *p != '\t') p++;
                 if (!*p)
                 {
-                  wc_left=wc_right=2;
+                  // though if leading char is non-word, don't require previous character to be nonword
+                  if (!hasStrings_isNonWordChar(n)) wc_left=2;
+                  // and if trailing char is non-word, don't require next character to be nonword
+                  if (!hasStrings_isNonWordChar(hasStrings_rewutf8(p-1,n))) wc_right=2;
                 }
               }
             break;
