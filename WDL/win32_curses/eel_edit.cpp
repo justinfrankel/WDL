@@ -1178,7 +1178,7 @@ static int fuzzy_match2(const char *codestr, int codelen, const char *refstr, in
     const int wordlen = word_len(word);
     if (!wordlen) break;
     char word_buf[128];
-    lstrcpyn_safe(word_buf,word,wordlen+1);
+    lstrcpyn_safe(word_buf,word,wdl_min(wordlen+1,sizeof(word_buf)));
 
     if (WDL_stristr(refstr,word_buf)==word)
     {
