@@ -2424,6 +2424,7 @@ struct bridgeState {
   Window native_w;
   Display *native_disp;
   GdkWindow *cur_parent;
+  Window cur_parent_xid;
   HWND hwnd_child;
 
   bool lastvis;
@@ -2472,6 +2473,7 @@ bridgeState::bridgeState(bool needrep, GdkWindow *_w, Window _nw, Display *_disp
   lastvis=false;
   need_reparent=needrep;
   cur_parent = _curpar;
+  cur_parent_xid = _curpar ? GDK_WINDOW_XID(_curpar) : 0;
   memset(&lastrect,0,sizeof(lastrect));
   filter_windows.Add(this);
 }
@@ -2619,6 +2621,7 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
               bs->lastrect=tr;
 
               bs->cur_parent = h->m_oswindow;
+              bs->cur_parent_xid = h->m_oswindow ? GDK_WINDOW_XID(h->m_oswindow) : 0;
               bs->need_reparent=false;
               if (vis && bs->lastvis) gdk_window_show(bs->w);
             }
@@ -2985,7 +2988,7 @@ static bool want_key_embed_redirect(Display *disp, Window scan_id, Window *new_d
   {
     bridgeState *bs = filter_windows.Get(x);
     if (bs && bs->cur_parent &&
-        GDK_WINDOW_XID(bs->cur_parent) == scan_id &&
+        bs->cur_parent_xid == scan_id &&
         bs->native_disp == disp)
     {
       HWND foc = GetFocus();
@@ -3047,7 +3050,7 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
         {
           bridgeState *bs = filter_windows.Get(x);
           if (bs && bs->cur_parent &&
-              GDK_WINDOW_XID(bs->cur_parent) == scan_id &&
+              bs->cur_parent_xid == scan_id &&
               bs->native_disp == disp)
           {
             POINT pt;
@@ -3105,7 +3108,7 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
           {
             bridgeState *bs = filter_windows.Get(x);
             if (bs && bs->cur_parent &&
-                GDK_WINDOW_XID(bs->cur_parent) == scan_id &&
+                bs->cur_parent_xid == scan_id &&
                 bs->native_disp == disp)
             {
               POINT pt = { (int) foc->root_x, (int) foc->root_y };
