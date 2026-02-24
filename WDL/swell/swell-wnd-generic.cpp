@@ -3661,6 +3661,17 @@ popupMenu:
         InvalidateRect(hwnd,NULL,FALSE);
       }
     return 0;
+    case WM_MOUSEWHEEL:
+      if (s)
+      {
+        s->selidx += (short)HIWORD(wParam) < 0 ? 1:-1;
+        s->selidx = wdl_max(0,wdl_min(s->items.GetSize()-1,s->selidx));
+        char *ptr=s->items.Get(s->selidx)->desc;
+        SetWindowText(hwnd,ptr);
+        InvalidateRect(hwnd,NULL,FALSE);
+        SendMessage(GetParent(hwnd),WM_COMMAND,(GetWindowLong(hwnd,GWL_ID)&0xffff) | (CBN_SELCHANGE<<16),(LPARAM)hwnd);
+      }
+    return 0;
     case WM_KEYDOWN:
       if ((lParam&FVIRTKEY) && wParam == VK_DOWN) { s_capmode_state=5; goto popupMenu; }
       if ((hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST && 
