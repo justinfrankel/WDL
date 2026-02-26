@@ -3412,7 +3412,7 @@ class __SWELL_ComboBoxInternalState
 
 static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
-  static const int buttonwid = 16; // used in edit combobox
+  static const int buttonwid = 16;
   static int s_capmode_state;
   __SWELL_ComboBoxInternalState *s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
   if (msg >= CB_ADDSTRING && msg <= CB_INITSTORAGE)
@@ -3748,11 +3748,10 @@ popupMenu:
           }
 
           r.left+=SWELL_UI_SCALE(3);
-          r.right-=SWELL_UI_SCALE(3);
 
           if ((hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST)
           {
-            r.right -= SWELL_UI_SCALE(buttonwid+2);
+            r.right -= SWELL_UI_SCALE(buttonwid+5);
             r.left -= s->editstate.scroll_x;
             editControlPaintLine(ps.hdc, hwnd->m_title.Get(), hwnd->m_title.GetLength(),
                 s->editstate.cursor_state!=0 ? cursor_pos : -1,
@@ -3760,6 +3759,7 @@ popupMenu:
           }
           else
           {
+            r.right -= SWELL_UI_SCALE(buttonwid-1);
             char buf[512];
             buf[0]=0;
             GetWindowText(hwnd,buf,sizeof(buf));
