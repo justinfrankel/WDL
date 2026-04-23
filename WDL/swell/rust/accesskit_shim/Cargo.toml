@@ -1,0 +1,12 @@
+[package]
+name = "swell_accesskit_shim"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+accesskit = { path = "../../../../../accesskit/common" }
+accesskit_unix = { path = "../../../../../accesskit/platforms/unix" }

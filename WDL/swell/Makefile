@@ -100,13 +100,18 @@ vpath %.cpp .. ../lice
 SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
-             swell-generic-headless.o swell-generic-gdk.o \
+             swell-generic-headless.o swell-generic-gdk.o swell-accesskit-generic.o \
              swell-appstub-generic.o swell-modstub-generic.o 
 
 LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
             lice_textnew.o lice_ico.o lice_bmp.o
 
 OBJS = $(SWELL_OBJS)
+
+ACCESSKIT_SHIM_DIR ?= rust/accesskit_shim
+ACCESSKIT_SHIM_MANIFEST := $(ACCESSKIT_SHIM_DIR)/Cargo.toml
+ACCESSKIT_SHIM_RS := $(wildcard $(ACCESSKIT_SHIM_DIR)/src/*.rs)
+ACCESSKIT_SHIM_LIB := $(ACCESSKIT_SHIM_DIR)/target/release/libswell_accesskit_shim.a
 
 ifndef NOGDK
   ifdef GDK2
@@ -140,6 +145,12 @@ ifndef NOGDK
   endif
   CFLAGS += -DSWELL_LICE_GDI
   OBJS += $(LICE_OBJS)
+
+  ifndef NOACCESSKIT
+    CFLAGS += -DSWELL_ACCESSKIT
+    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gio-2.0)
+    LINKEXTRA += $(ACCESSKIT_SHIM_LIB) -lm -lutil -lrt
+  endif
 
   ifndef NOFREETYPE
     CFLAGS += -DSWELL_FREETYPE $(shell $(PKG_CONFIG) --cflags freetype2)
@@ -177,12 +188,21 @@ swell-kb-generic.o: $(SWELL_HEADERS)
 swell-miscdlg-generic.o: $(SWELL_HEADERS)
 swell-modstub-generic.o: $(SWELL_HEADERS)
 swell-appstub-generic.o: $(SWELL_HEADERS)
+swell-accesskit-generic.o: $(SWELL_HEADERS) swell-accesskit-shim.h
+
+ifndef NOACCESSKIT
+libSwell$(DLL_EXT): $(ACCESSKIT_SHIM_LIB)
+test: $(ACCESSKIT_SHIM_LIB)
+
+$(ACCESSKIT_SHIM_LIB): $(ACCESSKIT_SHIM_MANIFEST) $(ACCESSKIT_SHIM_RS)
+	cargo build --release --manifest-path $(abspath $(ACCESSKIT_SHIM_MANIFEST))
+endif
 
 libSwell$(DLL_EXT): $(OBJS)
-	$(CXX) -shared -o $@ $(CFLAGS) $(LFLAGS) $^ $(LINKEXTRA)
+	$(CXX) -shared -o $@ $(CFLAGS) $(LFLAGS) $(OBJS) $(LINKEXTRA)
 
 test: $(OBJS) test.o
-	$(CXX) -o test $(CFLAGS) $(LFLAGS) $^ $(LINKEXTRA)
+	$(CXX) -o test $(CFLAGS) $(LFLAGS) $(OBJS) test.o $(LINKEXTRA)
 
 libSwell.colortheme: swell-gdi-generic.cpp $(SWELL_HEADERS)
 	$(CXX) $(CFLAGS) -o make-theme -DSWELL__MAKE_THEME swell-gdi-generic.cpp -lpthread

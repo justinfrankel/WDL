@@ -23,11 +23,13 @@
 #include "../WDL/win32_utf8.h"
 #endif
 
-#include "../WDL/swell/swell.h"
+#include "../../swell/swell.h"
 
-#include "../WDL/wingui/wndsize.h"
+#include "../../wingui/wndsize.h"
 
 #include "resource.h"
+
+#include <stdio.h>
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 bool g_quit;
@@ -36,12 +38,24 @@ bool g_quit;
 HINSTANCE g_hInstance;
 HWND g_hwnd;
 
+static int get_slider_pos(HWND hwndDlg)
+{
+  HWND slider = GetDlgItem(hwndDlg, IDC_SLIDER1);
+  return slider ? (int)SendMessage(slider, TBM_GETPOS, 0, 0) : 0;
+}
+
+static void set_status(HWND hwndDlg, const char *text)
+{
+  SetDlgItemText(hwndDlg, IDC_LASTMSG, text ? text : "");
+}
+
 WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
   static WDL_WndSizer resize;
   switch (uMsg)
   {
     case WM_INITDIALOG:
+      {
       g_hwnd=hwndDlg;
 #ifdef _WIN32
       {
@@ -51,7 +65,25 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 #endif
 
       resize.init(hwndDlg);
+      resize.init_item(IDC_LASTMSG, 1, 0, 1, 0);
+      resize.init_item(IDC_EDIT1, 1, 0, 1, 0);
+      resize.init_item(IDC_BUTTON1, 1, 0, 1, 0);
+      resize.init_item(IDC_CHECK1, 1, 0, 1, 0);
+      resize.init_item(IDC_SLIDER1, 1, 0, 1, 0);
       resize.init_item(IDCANCEL,0,1,0,1);
+
+      SetDlgItemText(hwndDlg, IDC_EDIT1, "Editable AccessKit text");
+      CheckDlgButton(hwndDlg, IDC_CHECK1, 0);
+
+      HWND slider = GetDlgItem(hwndDlg, IDC_SLIDER1);
+      if (slider)
+      {
+        SendMessage(slider, TBM_SETRANGE, TRUE, MAKELONG(0, 10));
+        SendMessage(slider, TBM_SETTIC, 0, 5);
+        SendMessage(slider, TBM_SETPOS, TRUE, 5);
+      }
+      set_status(hwndDlg, "AccessKit demo ready");
+      }
     return 1;
     case WM_CLOSE:
       DestroyWindow(hwndDlg);
@@ -70,13 +102,32 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       if (wParam != SIZE_MINIMIZED)
         resize.onResize();
     break;
+    case WM_HSCROLL:
+      if ((HWND)lParam == GetDlgItem(hwndDlg, IDC_SLIDER1))
+      {
+        char buf[128];
+        sprintf(buf, "Slider value: %d", get_slider_pos(hwndDlg));
+        set_status(hwndDlg, buf);
+        return 1;
+      }
+    break;
     case WM_COMMAND:
       switch (LOWORD(wParam))
       {
+        case IDC_BUTTON1:
+          {
+            char buf[512];
+            GetDlgItemText(hwndDlg, IDC_EDIT1, buf, sizeof(buf));
+            set_status(hwndDlg, buf[0] ? buf : "Button pressed");
+          }
+        return 1;
+        case IDC_CHECK1:
+          set_status(hwndDlg, IsDlgButtonChecked(hwndDlg, IDC_CHECK1) ? "Checkbox checked" : "Checkbox unchecked");
+        return 1;
         case ID_QUIT:
         case IDCANCEL:
           DestroyWindow(hwndDlg);
-        break;
+        return 1;
       }
     break;
   }
@@ -189,11 +240,11 @@ int main(int argc, const char **argv)
 #endif
 
 
-#include "../WDL/swell/swell-dlggen.h"
+#include "../../swell/swell-dlggen.h"
 #include "res.rc_mac_dlg"
 #undef BEGIN
 #undef END
-#include "../WDL/swell/swell-menugen.h"
+#include "../../swell/swell-menugen.h"
 #include "res.rc_mac_menu"
 
 #endif

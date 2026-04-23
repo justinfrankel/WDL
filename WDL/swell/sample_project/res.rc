@@ -36,18 +36,18 @@ IDI_ICON1               ICON    DISCARDABLE     "icon1.ico"
 // TEXTINCLUDE
 //
 
-1 TEXTINCLUDE DISCARDABLE 
+1 TEXTINCLUDE DISCARDABLE
 BEGIN
     "resource.h\0"
 END
 
-2 TEXTINCLUDE DISCARDABLE 
+2 TEXTINCLUDE DISCARDABLE
 BEGIN
-    "#include ""afxres.h""\r\n"
+    "#include \"\"afxres.h\"\"\r\n"
     "\0"
 END
 
-3 TEXTINCLUDE DISCARDABLE 
+3 TEXTINCLUDE DISCARDABLE
 BEGIN
     "\r\n"
     "\0"
@@ -61,12 +61,20 @@ END
 // Dialog
 //
 
-IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 377, 261
+IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 260, 120
 STYLE DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
 CAPTION "SWELL MyApp"
 FONT 8, "MS Sans Serif"
 BEGIN
-    PUSHBUTTON      "Quit",IDCANCEL,4,244,50,14
+    LTEXT           "Status",IDC_STATIC,4,6,24,8
+    LTEXT           "AccessKit demo ready",IDC_LASTMSG,34,6,182,12
+    LTEXT           "Edit value",IDC_STATIC,4,26,38,8
+    EDITTEXT        IDC_EDIT1,48,24,104,14,ES_AUTOHSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "Update label",IDC_BUTTON1,158,23,60,14
+    CHECKBOX        "Accessible checkbox",IDC_CHECK1,4,46,102,10
+    LTEXT           "Slider",IDC_STATIC,4,66,24,8
+    CONTROL         "Demo slider",IDC_SLIDER1,"msctls_trackbar32",WS_TABSTOP,34,60,184,18
+    PUSHBUTTON      "Quit",IDCANCEL,4,100,50,14
 END
 
 
@@ -76,14 +84,14 @@ END
 //
 
 #ifdef APSTUDIO_INVOKED
-GUIDELINES DESIGNINFO DISCARDABLE 
+GUIDELINES DESIGNINFO DISCARDABLE
 BEGIN
     IDD_DIALOG1, DIALOG
     BEGIN
         LEFTMARGIN, 4
-        RIGHTMARGIN, 374
+        RIGHTMARGIN, 256
         TOPMARGIN, 3
-        BOTTOMMARGIN, 258
+        BOTTOMMARGIN, 116
     END
 END
 #endif    // APSTUDIO_INVOKED
@@ -117,12 +125,12 @@ BEGIN
             VALUE "FileDescription", "swell_myapp\0"
             VALUE "FileVersion", "0, 0, 0, 1\0"
             VALUE "InternalName", "swell_myapp\0"
-            VALUE "LegalCopyright", "Copyright © 2022 and onwards\0"
+            VALUE "LegalCopyright", "Copyright 2022 and onwards\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "MyApp.exe\0"
             VALUE "PrivateBuild", "\0"
             VALUE "ProductName", "swell_myapp\0"
-            VALUE "ProductVersion", "0, 0, l, 1\0"
+            VALUE "ProductVersion", "0, 0, 1, 1\0"
             VALUE "SpecialBuild", "\0"
         END
     END
@@ -148,4 +156,3 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
-

@@ -104,6 +104,7 @@ void swell_on_toplevel_raise(SWELL_OSWINDOW wnd) // called by swell-generic-gdk 
     HWND c = SWELL_GetFocusedChild(hwnd);
     if (c) SendMessage(c,WM_SETFOCUS,0,0);
   }
+  swell_accesskit_focus_changed();
 }
 
 HWND__::HWND__(HWND par, int wID, const RECT *wndr, const char *label, bool visible, WNDPROC wndproc, DLGPROC dlgproc, HWND ownerWindow)
@@ -511,6 +512,7 @@ void EnableWindow(HWND hwnd, int enable)
       hwnd->m_parent->m_focused_child = NULL;
   }
   InvalidateRect(hwnd,NULL,FALSE);
+  swell_accesskit_window_changed(hwnd);
 }
 
 void SetForegroundWindow(HWND hwnd)
@@ -528,6 +530,7 @@ void SetForegroundWindow(HWND hwnd)
   HWND foc = GetFocus();
   if (foc && foc != oldFoc)
     SendMessage(foc,WM_SETFOCUS,(WPARAM)oldFoc,0);
+  swell_accesskit_focus_changed();
 }
 
 void SetFocus(HWND hwnd)
@@ -548,6 +551,7 @@ void SetFocus(HWND hwnd)
 
   if (hwnd != oldFoc)
     SendMessage(hwnd,WM_SETFOCUS,(WPARAM)oldFoc,0);
+  swell_accesskit_focus_changed();
 }
 
 void SWELL_OnNavigationFocus(HWND ch)
@@ -746,6 +750,7 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
       if (reposflag&2) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,0);
       InvalidateRect(hwnd->m_parent ? hwnd->m_parent : hwnd,NULL,FALSE);
     }
+    swell_accesskit_window_changed(hwnd);
   }
   swell_oswindow_postresize(hwnd,f);
 }
@@ -899,6 +904,7 @@ void SWELL_RunMessageLoop()
     }
     rec=rec->_next;
   } 
+  swell_accesskit_pump();
 }
 
 UINT_PTR SetTimer(HWND hwnd, UINT_PTR timerid, UINT rate, TIMERPROC tProc)
@@ -1002,6 +1008,7 @@ BOOL SetDlgItemText(HWND hwnd, int idx, const char *text)
     swell_oswindow_update_text(hwnd);
   } 
   SendMessage(hwnd,WM_SETTEXT,0,(LPARAM)text);
+  swell_accesskit_window_changed(hwnd);
   return true;
 }
 
@@ -1094,6 +1101,7 @@ void ShowWindow(HWND hwnd, int cmd)
     swell_oswindow_maximize(hwnd,cmd == SW_SHOWMAXIMIZED);
 
   InvalidateRect(hwnd,NULL,FALSE);
+  swell_accesskit_window_changed(hwnd);
 
 }
 
@@ -1370,6 +1378,7 @@ fakeButtonClick:
             s->state = 1 | (s->state&~3);
           }
           SendMessage(hwnd->m_parent,WM_COMMAND,MAKEWPARAM(hwnd->m_id,BN_CLICKED),(LPARAM)hwnd);
+          swell_accesskit_window_changed(hwnd);
         }
         if (msg == WM_KEYDOWN) InvalidateRect(hwnd,NULL,FALSE);
         hwnd->Release();
@@ -1578,6 +1587,7 @@ fakeButtonClick:
     case WM_SETFOCUS:
     case WM_KILLFOCUS:
       InvalidateRect(hwnd,NULL,FALSE);
+      if (msg != WM_USER+100 && msg != WM_CAPTURECHANGED) swell_accesskit_window_changed(hwnd);
     break;
   }
   return DefWindowProc(hwnd,msg,wParam,lParam);
@@ -2956,6 +2966,7 @@ again:
       InvalidateRect(hwnd,NULL,FALSE);
       if (hwnd->m_id && hwnd->m_parent)
         SendMessage(hwnd->m_parent,WM_COMMAND,(EN_CHANGE<<16)|hwnd->m_id,(LPARAM)hwnd);
+      swell_accesskit_window_changed(hwnd);
     break;
     case EM_REPLACESEL:
       if (lParam && es)
@@ -2970,6 +2981,7 @@ again:
           hwnd->m_title.Insert(p,bytepos);
         }
         InvalidateRect(hwnd,NULL,FALSE);
+        swell_accesskit_window_changed(hwnd);
       }
     return 0;
     case EM_GETSEL:
@@ -3030,14 +3042,17 @@ static LRESULT WINAPI progressWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     case PBM_DELTAPOS:
       if (hwnd->m_private_data) *(int *)hwnd->m_private_data += (int) wParam; // todo: unsigned-ness conversion? unclear
       InvalidateRect(hwnd,NULL,FALSE);
+      swell_accesskit_window_changed(hwnd);
     break;
     case PBM_SETPOS:
       if (hwnd->m_private_data) *(int *)hwnd->m_private_data = (int) wParam;
       InvalidateRect(hwnd,NULL,FALSE);
+      swell_accesskit_window_changed(hwnd);
     break;
     case PBM_SETRANGE:
       if (hwnd->m_private_data) ((int *)hwnd->m_private_data)[1] = (int) lParam;
       InvalidateRect(hwnd,NULL,FALSE);
+      swell_accesskit_window_changed(hwnd);
     break;
     case WM_NCDESTROY:
       free((int *)hwnd->m_private_data);
@@ -3097,6 +3112,7 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     case TBM_SETPOS:
       if (hwnd->m_private_data) *(int *)hwnd->m_private_data = (int) lParam;
       if (wParam) InvalidateRect(hwnd,NULL,FALSE);
+      swell_accesskit_window_changed(hwnd);
     break;
     case TBM_GETPOS:
       if (hwnd->m_private_data) return *(int *)hwnd->m_private_data;
@@ -3104,9 +3120,11 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
     case TBM_SETRANGE:
       if (hwnd->m_private_data) ((int *)hwnd->m_private_data)[1] = (int) lParam;
       if (wParam) InvalidateRect(hwnd,NULL,FALSE);
+      swell_accesskit_window_changed(hwnd);
     break;
     case TBM_SETTIC:
       if (hwnd->m_private_data) ((int *)hwnd->m_private_data)[2] = (int) lParam;
+      swell_accesskit_window_changed(hwnd);
     break;
     case WM_NCDESTROY:
       free((int *)hwnd->m_private_data);
@@ -3124,6 +3142,7 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
           state[0] = to_val;
           InvalidateRect(hwnd,NULL,FALSE);
           SendMessage(hwnd->m_parent,WM_HSCROLL,SB_ENDSCROLL,(LPARAM)hwnd);
+          swell_accesskit_window_changed(hwnd);
         }
       }
     return 1;
@@ -3171,6 +3190,7 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
             state[0]=newval;
             InvalidateRect(hwnd,NULL,FALSE);
             SendMessage(hwnd->m_parent,WM_HSCROLL,0,(LPARAM)hwnd);
+            swell_accesskit_window_changed(hwnd);
           }
         }
       }

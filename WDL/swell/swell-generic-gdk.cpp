@@ -215,6 +215,7 @@ static void on_activate(guint32 ftime)
   s_force_window_time = 0;
 
   update_menubar_activations();
+  swell_accesskit_focus_changed();
 }
 
 void swell_gdk_reactivate_app(void)
@@ -253,6 +254,7 @@ void swell_oswindow_destroy(HWND hwnd)
 {
   if (hwnd && hwnd->m_oswindow)
   {
+    swell_accesskit_window_destroyed(hwnd);
     if (SWELL_focused_oswindow == hwnd->m_oswindow) SWELL_focused_oswindow = NULL;
     if (g_swell_touchptr && g_swell_touchptr_wnd == hwnd->m_oswindow)
       g_swell_touchptr = NULL;
@@ -724,6 +726,8 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           }
 
           swell_set_owned_windows_transient(hwnd, true);
+          swell_accesskit_window_created(hwnd);
+          swell_accesskit_window_changed(hwnd);
         }
       }
     }
@@ -1072,6 +1076,7 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
   hwnd->m_position.top = cfg->y;
   hwnd->m_position.right = cfg->x + cfg->width;
   hwnd->m_position.bottom = cfg->y + cfg->height;
+  if (flag) swell_accesskit_window_changed(hwnd);
   if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
   if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,0);
   if (!hwnd->m_hashaddestroy && hwnd->m_oswindow && (hwnd->m_style & WS_THICKFRAME))

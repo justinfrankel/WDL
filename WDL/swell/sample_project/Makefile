@@ -1,6 +1,6 @@
 APPNAME=myapp
 
-WDL_PATH = ../WDL
+WDL_PATH ?= ../..
 vpath swell%.cpp $(WDL_PATH)/swell
 vpath lice%.cpp $(WDL_PATH)/lice
 vpath %.c $(WDL_PATH)
@@ -10,7 +10,8 @@ vpath %.cpp $(WDL_PATH) $(WDL_PATH)/wingui
 SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
-             swell-generic-gdk.o swell-appstub-generic.o swell-modstub-generic.o
+             swell-generic-gdk.o swell-accesskit-generic.o \
+             swell-appstub-generic.o swell-modstub-generic.o
 
 LICE_OBJS = lice_image.o lice_arc.o lice_line.o lice_text.o \
             lice_textnew.o lice.o lice_colorspace.o
@@ -20,6 +21,11 @@ OTHER_OBJS = wndsize.o
 RESFILES = res.rc_mac_dlg res.rc_mac_menu
 
 OBJS += myapp.o $(SWELL_OBJS) $(OTHER_OBJS)
+
+ACCESSKIT_SHIM_DIR ?= ../rust/accesskit_shim
+ACCESSKIT_SHIM_MANIFEST := $(ACCESSKIT_SHIM_DIR)/Cargo.toml
+ACCESSKIT_SHIM_RS := $(wildcard $(ACCESSKIT_SHIM_DIR)/src/*.rs)
+ACCESSKIT_SHIM_LIB := $(ACCESSKIT_SHIM_DIR)/target/release/libswell_accesskit_shim.a
 
 
 ###### Compiler/Linker flags
@@ -71,6 +77,12 @@ ifndef NOGDK
   CFLAGS += -DSWELL_LICE_GDI
   OBJS += $(LICE_OBJS)
 
+  ifndef NOACCESSKIT
+    CFLAGS += -DSWELL_ACCESSKIT
+    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gio-2.0)
+    LINKEXTRA += $(ACCESSKIT_SHIM_LIB) -lm -lutil -lrt
+  endif
+
   ifndef NOFREETYPE
     CFLAGS += -DSWELL_FREETYPE $(shell $(PKG_CONFIG) --cflags freetype2)
     LINKEXTRA += $(shell $(PKG_CONFIG) --libs freetype2)
@@ -91,6 +103,13 @@ default: $(APPNAME)
 
 $(RESFILES): res.rc
 	$(WDL_PATH)/swell/swell_resgen.pl $^
+
+ifndef NOACCESSKIT
+$(APPNAME): $(ACCESSKIT_SHIM_LIB)
+
+$(ACCESSKIT_SHIM_LIB): $(ACCESSKIT_SHIM_MANIFEST) $(ACCESSKIT_SHIM_RS)
+	cargo build --release --manifest-path $(abspath $(ACCESSKIT_SHIM_MANIFEST))
+endif
 
 $(APPNAME): $(RESFILES) $(OBJS)
 	$(CXX) -o $@ $(CFLAGS) $(OBJS) $(LINKEXTRA)
