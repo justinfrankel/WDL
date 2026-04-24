@@ -69,11 +69,43 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       resize.init_item(IDC_EDIT1, 1, 0, 1, 0);
       resize.init_item(IDC_BUTTON1, 1, 0, 1, 0);
       resize.init_item(IDC_CHECK1, 1, 0, 1, 0);
+      resize.init_item(IDC_COMBO_DROPDOWN, 1, 0, 1, 0);
+      resize.init_item(IDC_COMBO_EDITABLE, 1, 0, 1, 0);
       resize.init_item(IDC_SLIDER1, 1, 0, 1, 0);
       resize.init_item(IDCANCEL,0,1,0,1);
 
+      HMENU menu = LoadMenu(NULL, MAKEINTRESOURCE(IDR_MENU1));
+      if (menu)
+      {
+        SetMenu(hwndDlg, menu);
+        EnableMenuItem(menu, ID_SAMPLE_DISABLED, MF_BYCOMMAND | MF_GRAYED);
+        CheckMenuItem(menu, ID_SAMPLE_CHECKED, MF_BYCOMMAND | MF_CHECKED);
+        CheckMenuItem(menu, ID_SAMPLE_RADIO, MF_BYCOMMAND | MF_CHECKED);
+        MENUITEMINFO radio = { sizeof(radio), MIIM_TYPE, MFT_RADIOCHECK };
+        SetMenuItemInfo(menu, ID_SAMPLE_RADIO, FALSE, &radio);
+        DrawMenuBar(hwndDlg);
+      }
+
       SetDlgItemText(hwndDlg, IDC_EDIT1, "Editable AccessKit text");
       CheckDlgButton(hwndDlg, IDC_CHECK1, 0);
+
+      HWND dropdown = GetDlgItem(hwndDlg, IDC_COMBO_DROPDOWN);
+      if (dropdown)
+      {
+        SendMessage(dropdown, CB_ADDSTRING, 0, (LPARAM)"Alpha");
+        SendMessage(dropdown, CB_ADDSTRING, 0, (LPARAM)"Bravo");
+        SendMessage(dropdown, CB_ADDSTRING, 0, (LPARAM)"Charlie");
+        SendMessage(dropdown, CB_SETCURSEL, 1, 0);
+      }
+
+      HWND editable_combo = GetDlgItem(hwndDlg, IDC_COMBO_EDITABLE);
+      if (editable_combo)
+      {
+        SendMessage(editable_combo, CB_ADDSTRING, 0, (LPARAM)"Editable alpha");
+        SendMessage(editable_combo, CB_ADDSTRING, 0, (LPARAM)"Editable bravo");
+        SendMessage(editable_combo, CB_ADDSTRING, 0, (LPARAM)"Editable charlie");
+        SendMessage(editable_combo, CB_SETCURSEL, 0, 0);
+      }
 
       HWND slider = GetDlgItem(hwndDlg, IDC_SLIDER1);
       if (slider)
@@ -123,6 +155,27 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 1;
         case IDC_CHECK1:
           set_status(hwndDlg, IsDlgButtonChecked(hwndDlg, IDC_CHECK1) ? "Checkbox checked" : "Checkbox unchecked");
+        return 1;
+        case IDC_COMBO_DROPDOWN:
+        case IDC_COMBO_EDITABLE:
+          if (HIWORD(wParam) == CBN_SELCHANGE || HIWORD(wParam) == CBN_EDITCHANGE)
+          {
+            char buf[256];
+            GetWindowText((HWND)lParam, buf, sizeof(buf));
+            set_status(hwndDlg, buf);
+          }
+        return 1;
+        case ID_SAMPLE_HELLO:
+          set_status(hwndDlg, "Menu hello");
+        return 1;
+        case ID_SAMPLE_CHECKED:
+          set_status(hwndDlg, "Checked menu item");
+        return 1;
+        case ID_SAMPLE_RADIO:
+          set_status(hwndDlg, "Radio menu item");
+        return 1;
+        case ID_SAMPLE_NESTED:
+          set_status(hwndDlg, "Nested menu item");
         return 1;
         case ID_QUIT:
         case IDCANCEL:

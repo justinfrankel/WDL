@@ -24,6 +24,14 @@ enum
   SWELL_ACCESSKIT_ROLE_GROUP = 11,
   SWELL_ACCESSKIT_ROLE_COMBO_BOX = 12,
   SWELL_ACCESSKIT_ROLE_TEXT_RUN = 13,
+  SWELL_ACCESSKIT_ROLE_MENU_BAR = 14,
+  SWELL_ACCESSKIT_ROLE_MENU = 15,
+  SWELL_ACCESSKIT_ROLE_MENU_ITEM = 16,
+  SWELL_ACCESSKIT_ROLE_MENU_ITEM_CHECK_BOX = 17,
+  SWELL_ACCESSKIT_ROLE_MENU_ITEM_RADIO = 18,
+  SWELL_ACCESSKIT_ROLE_MENU_LIST_POPUP = 19,
+  SWELL_ACCESSKIT_ROLE_MENU_LIST_OPTION = 20,
+  SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX = 21,
 };
 
 enum
@@ -44,6 +52,17 @@ enum
   SWELL_ACCESSKIT_NODE_FLAG_HAS_MIN_NUMERIC_VALUE = 1u << 3,
   SWELL_ACCESSKIT_NODE_FLAG_HAS_MAX_NUMERIC_VALUE = 1u << 4,
   SWELL_ACCESSKIT_NODE_FLAG_HAS_NUMERIC_VALUE_STEP = 1u << 5,
+  SWELL_ACCESSKIT_NODE_FLAG_HAS_EXPANDED = 1u << 6,
+  SWELL_ACCESSKIT_NODE_FLAG_EXPANDED = 1u << 7,
+  SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED = 1u << 8,
+  SWELL_ACCESSKIT_NODE_FLAG_SELECTED = 1u << 9,
+};
+
+enum
+{
+  SWELL_ACCESSKIT_HAS_POPUP_NONE = 0,
+  SWELL_ACCESSKIT_HAS_POPUP_MENU = 1,
+  SWELL_ACCESSKIT_HAS_POPUP_LISTBOX = 2,
 };
 
 enum
@@ -120,6 +139,12 @@ typedef struct swell_accesskit_node
   const float *character_widths;
   swell_accesskit_string_ref label;
   swell_accesskit_string_ref value;
+  uint32_t has_popup;
+  uint64_t active_descendant;
+  size_t position_in_set;
+  size_t size_of_set;
+  swell_accesskit_string_ref access_key;
+  swell_accesskit_string_ref keyboard_shortcut;
 } swell_accesskit_node;
 
 typedef struct swell_accesskit_tree_snapshot

@@ -61,7 +61,7 @@ END
 // Dialog
 //
 
-IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 260, 120
+IDD_DIALOG1 DIALOG DISCARDABLE  0, 0, 300, 150
 STYLE DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
 CAPTION "SWELL MyApp"
 FONT 8, "MS Sans Serif"
@@ -72,9 +72,33 @@ BEGIN
     EDITTEXT        IDC_EDIT1,48,24,104,14,ES_AUTOHSCROLL | WS_TABSTOP
     DEFPUSHBUTTON   "Update label",IDC_BUTTON1,158,23,60,14
     CHECKBOX        "Accessible checkbox",IDC_CHECK1,4,46,102,10
-    LTEXT           "Slider",IDC_STATIC,4,66,24,8
-    CONTROL         "Demo slider",IDC_SLIDER1,"msctls_trackbar32",WS_TABSTOP,34,60,184,18
-    PUSHBUTTON      "Quit",IDCANCEL,4,100,50,14
+    LTEXT           "Dropdown combo",IDC_STATIC,4,66,56,8
+    COMBOBOX        IDC_COMBO_DROPDOWN,66,64,112,80,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Editable combo",IDC_STATIC,4,86,52,8
+    COMBOBOX        IDC_COMBO_EDITABLE,66,84,112,80,CBS_DROPDOWN | WS_TABSTOP
+    LTEXT           "Slider",IDC_STATIC,4,114,24,8
+    CONTROL         "Demo slider",IDC_SLIDER1,"msctls_trackbar32",WS_TABSTOP,34,108,184,18
+    PUSHBUTTON      "Quit",IDCANCEL,4,130,50,14
+END
+
+IDR_MENU1 MENU DISCARDABLE
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&Hello\tCtrl+H", ID_SAMPLE_HELLO
+        MENUITEM "Disabled item", ID_SAMPLE_DISABLED
+        MENUITEM SEPARATOR
+        POPUP "&Nested"
+        BEGIN
+            MENUITEM "&Nested action", ID_SAMPLE_NESTED
+        END
+        MENUITEM "E&xit\tAlt+F4", ID_QUIT
+    END
+    POPUP "&Options"
+    BEGIN
+        MENUITEM "&Checked option", ID_SAMPLE_CHECKED
+        MENUITEM "&Radio option", ID_SAMPLE_RADIO
+    END
 END
 
 
@@ -89,9 +113,9 @@ BEGIN
     IDD_DIALOG1, DIALOG
     BEGIN
         LEFTMARGIN, 4
-        RIGHTMARGIN, 256
+        RIGHTMARGIN, 296
         TOPMARGIN, 3
-        BOTTOMMARGIN, 116
+        BOTTOMMARGIN, 146
     END
 END
 #endif    // APSTUDIO_INVOKED

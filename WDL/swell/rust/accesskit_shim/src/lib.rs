@@ -1,7 +1,7 @@
 use accesskit::{
-    Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node,
-    NodeId, Orientation, Rect, Role, TextDirection, TextPosition, TextSelection, Toggled, Tree,
-    TreeId, TreeUpdate,
+    Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
+    HasPopup, Node, NodeId, Orientation, Rect, Role, TextDirection, TextPosition, TextSelection,
+    Toggled, Tree, TreeId, TreeUpdate,
 };
 use accesskit_unix::Adapter;
 use std::collections::VecDeque;
@@ -25,6 +25,14 @@ const ROLE_PROGRESS_INDICATOR: u32 = 10;
 const ROLE_GROUP: u32 = 11;
 const ROLE_COMBO_BOX: u32 = 12;
 const ROLE_TEXT_RUN: u32 = 13;
+const ROLE_MENU_BAR: u32 = 14;
+const ROLE_MENU: u32 = 15;
+const ROLE_MENU_ITEM: u32 = 16;
+const ROLE_MENU_ITEM_CHECK_BOX: u32 = 17;
+const ROLE_MENU_ITEM_RADIO: u32 = 18;
+const ROLE_MENU_LIST_POPUP: u32 = 19;
+const ROLE_MENU_LIST_OPTION: u32 = 20;
+const ROLE_EDITABLE_COMBO_BOX: u32 = 21;
 
 const ACTION_FOCUS_MASK: u32 = 1u32 << 0;
 const ACTION_CLICK_MASK: u32 = 1u32 << 1;
@@ -39,6 +47,13 @@ const NODE_FLAG_HAS_NUMERIC_VALUE: u32 = 1u32 << 2;
 const NODE_FLAG_HAS_MIN_NUMERIC_VALUE: u32 = 1u32 << 3;
 const NODE_FLAG_HAS_MAX_NUMERIC_VALUE: u32 = 1u32 << 4;
 const NODE_FLAG_HAS_NUMERIC_VALUE_STEP: u32 = 1u32 << 5;
+const NODE_FLAG_HAS_EXPANDED: u32 = 1u32 << 6;
+const NODE_FLAG_EXPANDED: u32 = 1u32 << 7;
+const NODE_FLAG_HAS_SELECTED: u32 = 1u32 << 8;
+const NODE_FLAG_SELECTED: u32 = 1u32 << 9;
+
+const HAS_POPUP_MENU: u32 = 1;
+const HAS_POPUP_LISTBOX: u32 = 2;
 
 const TOGGLED_FALSE: u32 = 1;
 const TOGGLED_TRUE: u32 = 2;
@@ -106,6 +121,12 @@ pub struct swell_accesskit_node {
     character_widths: *const f32,
     label: swell_accesskit_string_ref,
     value: swell_accesskit_string_ref,
+    has_popup: u32,
+    active_descendant: u64,
+    position_in_set: usize,
+    size_of_set: usize,
+    access_key: swell_accesskit_string_ref,
+    keyboard_shortcut: swell_accesskit_string_ref,
 }
 
 #[repr(C)]
@@ -230,6 +251,14 @@ fn map_role(value: u32) -> Role {
         ROLE_GROUP => Role::Group,
         ROLE_COMBO_BOX => Role::ComboBox,
         ROLE_TEXT_RUN => Role::TextRun,
+        ROLE_MENU_BAR => Role::MenuBar,
+        ROLE_MENU => Role::Menu,
+        ROLE_MENU_ITEM => Role::MenuItem,
+        ROLE_MENU_ITEM_CHECK_BOX => Role::MenuItemCheckBox,
+        ROLE_MENU_ITEM_RADIO => Role::MenuItemRadio,
+        ROLE_MENU_LIST_POPUP => Role::MenuListPopup,
+        ROLE_MENU_LIST_OPTION => Role::MenuListOption,
+        ROLE_EDITABLE_COMBO_BOX => Role::EditableComboBox,
         _ => Role::Unknown,
     }
 }
@@ -344,11 +373,37 @@ unsafe fn build_tree_update(
         if let Some(value) = string_from_ffi(&raw.value) {
             node.set_value(value);
         }
+        if let Some(access_key) = string_from_ffi(&raw.access_key) {
+            node.set_access_key(access_key);
+        }
+        if let Some(keyboard_shortcut) = string_from_ffi(&raw.keyboard_shortcut) {
+            node.set_keyboard_shortcut(keyboard_shortcut);
+        }
         if (raw.flags & NODE_FLAG_DISABLED) != 0 {
             node.set_disabled();
         }
         if (raw.flags & NODE_FLAG_READ_ONLY) != 0 {
             node.set_read_only();
+        }
+        if (raw.flags & NODE_FLAG_HAS_EXPANDED) != 0 {
+            node.set_expanded((raw.flags & NODE_FLAG_EXPANDED) != 0);
+        }
+        if (raw.flags & NODE_FLAG_HAS_SELECTED) != 0 {
+            node.set_selected((raw.flags & NODE_FLAG_SELECTED) != 0);
+        }
+        match raw.has_popup {
+            HAS_POPUP_MENU => node.set_has_popup(HasPopup::Menu),
+            HAS_POPUP_LISTBOX => node.set_has_popup(HasPopup::Listbox),
+            _ => {}
+        }
+        if raw.active_descendant != 0 {
+            node.set_active_descendant(NodeId(raw.active_descendant));
+        }
+        if raw.position_in_set != 0 {
+            node.set_position_in_set(raw.position_in_set);
+        }
+        if raw.size_of_set != 0 {
+            node.set_size_of_set(raw.size_of_set);
         }
         match raw.toggled {
             TOGGLED_FALSE => node.set_toggled(Toggled::False),

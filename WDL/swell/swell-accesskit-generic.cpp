@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef max
 #undef max
@@ -50,6 +51,8 @@ struct SWELL_AccessKitOwnedNode
   swell_accesskit_node pod;
   std::string label_storage;
   std::string value_storage;
+  std::string access_key_storage;
+  std::string keyboard_shortcut_storage;
   std::vector<uint64_t> children_storage;
   std::vector<uint8_t> character_lengths_storage;
   std::vector<float> character_positions_storage;
@@ -78,6 +81,7 @@ static SWELL_AccessKitWindowState *g_accesskit_windows;
 static bool g_accesskit_debug = false;
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
+static int swell_accesskit_count_accessible_menu_items(HMENU menu);
 
 static HWND swell_accesskit_get_root(HWND hwnd)
 {
@@ -95,9 +99,60 @@ static bool swell_accesskit_hwnd_has_text_run(HWND hwnd)
   return hwnd && hwnd->m_classname && !strcmp(hwnd->m_classname, "Edit") && !(hwnd->m_style & ES_MULTILINE);
 }
 
+static bool swell_accesskit_hwnd_is_combo(HWND hwnd)
+{
+  return hwnd && hwnd->m_classname && !strcmp(hwnd->m_classname, "combobox");
+}
+
+static bool swell_accesskit_combo_is_editable(HWND hwnd)
+{
+  return swell_accesskit_hwnd_is_combo(hwnd) && (hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST;
+}
+
+static bool swell_accesskit_hwnd_has_combo_text_run(HWND hwnd)
+{
+  return swell_accesskit_combo_is_editable(hwnd);
+}
+
 static uint64_t swell_accesskit_text_run_id_for_hwnd(HWND hwnd)
 {
   return ((uint64_t)(uintptr_t)hwnd << 1) | 1u;
+}
+
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR = 0x1000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR_ITEM = 0x2000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_POPUP_MENU = 0x3000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_POPUP_ITEM = 0x4000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COMBO_TEXT_RUN = 0x5000000000000000ull;
+
+static uint64_t swell_accesskit_pointer_bits(const void *ptr)
+{
+  return ((uint64_t)(uintptr_t)ptr) & 0x0000ffffffffffffull;
+}
+
+static uint64_t swell_accesskit_menu_bar_id_for_hwnd(HWND hwnd)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR | swell_accesskit_pointer_bits(hwnd);
+}
+
+static uint64_t swell_accesskit_menu_bar_item_id_for_hwnd(HWND hwnd, int index)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR_ITEM | ((swell_accesskit_pointer_bits(hwnd) & 0x000000ffffffffffull) << 8) | (uint64_t)(index & 0xff);
+}
+
+static uint64_t swell_accesskit_popup_menu_id_for_hwnd(HWND hwnd)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_POPUP_MENU | swell_accesskit_pointer_bits(hwnd);
+}
+
+static uint64_t swell_accesskit_popup_item_id_for_hwnd(HWND hwnd, int index)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_POPUP_ITEM | ((swell_accesskit_pointer_bits(hwnd) & 0x000000ffffffffffull) << 8) | (uint64_t)(index & 0xff);
+}
+
+static uint64_t swell_accesskit_combo_text_run_id_for_hwnd(HWND hwnd)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_COMBO_TEXT_RUN | swell_accesskit_pointer_bits(hwnd);
 }
 
 static void swell_accesskit_tree_id_for_hwnd(HWND hwnd, uint8_t tree_id[16])
@@ -174,11 +229,27 @@ static int swell_accesskit_count_nodes(HWND hwnd)
 
   int count = 1;
   if (swell_accesskit_hwnd_has_text_run(hwnd)) ++count;
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
+  if (!hwnd->m_parent && hwnd->m_menu)
+    count += 1 + swell_accesskit_count_accessible_menu_items(hwnd->m_menu);
   HWND child = hwnd->m_children;
   while (child)
   {
     count += swell_accesskit_count_nodes(child);
     child = child->m_next;
+  }
+  if (!hwnd->m_parent)
+  {
+    const int active_menu_count = swell_accesskit_get_active_menu_count();
+    HWND menu_owner = swell_accesskit_get_active_menu_owner();
+    if (menu_owner && swell_accesskit_contains_hwnd(hwnd, menu_owner))
+    {
+      for (int i = 0; i < active_menu_count; ++i)
+      {
+        HMENU menu = swell_accesskit_get_active_menu(i);
+        count += 1 + swell_accesskit_count_accessible_menu_items(menu);
+      }
+    }
   }
   return count;
 }
@@ -195,7 +266,8 @@ static uint32_t swell_accesskit_role_for_hwnd(HWND hwnd)
   if (!strcmp(classname, "msctls_trackbar32") || !strcmp(classname, "REAPERhfader"))
     return SWELL_ACCESSKIT_ROLE_SLIDER;
   if (!strcmp(classname, "msctls_progress32")) return SWELL_ACCESSKIT_ROLE_PROGRESS_INDICATOR;
-  if (!strcmp(classname, "combobox")) return SWELL_ACCESSKIT_ROLE_COMBO_BOX;
+  if (!strcmp(classname, "combobox"))
+    return swell_accesskit_combo_is_editable(hwnd) ? SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX : SWELL_ACCESSKIT_ROLE_COMBO_BOX;
   if (!strcmp(classname, "Button"))
   {
     if (hwnd->m_style & BS_GROUPBOX) return SWELL_ACCESSKIT_ROLE_GROUP;
@@ -222,6 +294,73 @@ static void swell_accesskit_copy_string(swell_accesskit_string_ref *dest, std::s
   storage->assign(value);
   dest->ptr = storage->c_str();
   dest->len = storage->size();
+}
+
+static void swell_accesskit_copy_std_string(swell_accesskit_string_ref *dest, std::string *storage, const std::string &value)
+{
+  swell_accesskit_copy_string(dest, storage, value.c_str());
+}
+
+static bool swell_accesskit_menu_item_is_string(const MENUITEMINFO *item)
+{
+  return item && (item->fType == MFT_STRING || item->fType == MFT_RADIOCHECK);
+}
+
+static std::string swell_accesskit_menu_label_without_mnemonic(const char *raw, std::string *access_key, std::string *shortcut)
+{
+  if (access_key) access_key->clear();
+  if (shortcut) shortcut->clear();
+  std::string label;
+  if (!raw) return label;
+
+  const char *tab = strchr(raw, '\t');
+  const char *end = tab ? tab : raw + strlen(raw);
+  for (const char *p = raw; p < end && *p; ++p)
+  {
+    if (*p == '&')
+    {
+      if (p + 1 < end && p[1] == '&')
+      {
+        label.push_back('&');
+        ++p;
+      }
+      else if (p + 1 < end && p[1] && access_key && access_key->empty())
+      {
+        char buf[2] = { (char)toupper((unsigned char)p[1]), 0 };
+        access_key->assign(buf);
+      }
+    }
+    else
+    {
+      label.push_back(*p);
+    }
+  }
+  if (tab && shortcut) shortcut->assign(tab + 1);
+  return label;
+}
+
+static int swell_accesskit_count_accessible_menu_items(HMENU menu)
+{
+  int count = 0;
+  if (!menu) return count;
+  for (int i = 0; i < menu->items.GetSize(); ++i)
+  {
+    MENUITEMINFO *item = menu->items.Get(i);
+    if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP)) ++count;
+  }
+  return count;
+}
+
+static int swell_accesskit_menu_position_in_set(HMENU menu, int index)
+{
+  int pos = 0;
+  if (!menu) return 0;
+  for (int i = 0; i <= index && i < menu->items.GetSize(); ++i)
+  {
+    MENUITEMINFO *item = menu->items.Get(i);
+    if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP)) ++pos;
+  }
+  return pos;
 }
 
 static void swell_accesskit_build_character_lengths(const char *value, std::vector<uint8_t> *storage)
@@ -298,15 +437,36 @@ static swell_accesskit_rect swell_accesskit_text_run_bounds_for_hwnd(HWND hwnd)
   return swell_accesskit_rect_from_rect(&bounds);
 }
 
+static swell_accesskit_rect swell_accesskit_combo_text_run_bounds_for_hwnd(HWND hwnd)
+{
+  RECT bounds = {0,};
+  if (!hwnd) return swell_accesskit_rect_from_rect(&bounds);
+  GetClientRect(hwnd, &bounds);
+  bounds.left += SWELL_UI_SCALE(3);
+  bounds.right -= SWELL_UI_SCALE(21);
+  if (bounds.right < bounds.left) bounds.right = bounds.left;
+  ClientToScreen(hwnd, (POINT *)&bounds);
+  ClientToScreen(hwnd, ((POINT *)&bounds) + 1);
+  return swell_accesskit_rect_from_rect(&bounds);
+}
+
 static void swell_accesskit_fill_text_selection(HWND hwnd, SWELL_AccessKitOwnedNode *node)
 {
-  if (!hwnd || !node || !swell_accesskit_hwnd_has_text_run(hwnd)) return;
+  if (!hwnd || !node || (!swell_accesskit_hwnd_has_text_run(hwnd) && !swell_accesskit_hwnd_has_combo_text_run(hwnd))) return;
 
   const int text_len = WDL_utf8_get_charlen(hwnd->m_title.Get());
   int cursor_pos = text_len;
   int sel1 = -1;
   int sel2 = -1;
-  if (!swell_edit_control_get_accessibility_text_state(hwnd, &cursor_pos, &sel1, &sel2, NULL))
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
+  {
+    const DWORD sel = (DWORD)SendMessage(hwnd, EM_GETSEL, (WPARAM)&sel1, (LPARAM)&sel2);
+    if (sel != (DWORD)-1)
+    {
+      cursor_pos = sel2 >= 0 ? sel2 : text_len;
+    }
+  }
+  else if (!swell_edit_control_get_accessibility_text_state(hwnd, &cursor_pos, &sel1, &sel2, NULL))
   {
     cursor_pos = text_len;
     sel1 = sel2 = -1;
@@ -325,7 +485,8 @@ static void swell_accesskit_fill_text_selection(HWND hwnd, SWELL_AccessKitOwnedN
       anchor = (size_t)wdl_min(sel1, text_len);
   }
 
-  node->pod.text_selection_node = swell_accesskit_text_run_id_for_hwnd(hwnd);
+  node->pod.text_selection_node = swell_accesskit_hwnd_has_combo_text_run(hwnd) ?
+      swell_accesskit_combo_text_run_id_for_hwnd(hwnd) : swell_accesskit_text_run_id_for_hwnd(hwnd);
   node->pod.text_selection_anchor = anchor;
   node->pod.text_selection_focus = focus;
 }
@@ -379,11 +540,19 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
 static int swell_accesskit_count_direct_visible_children(HWND hwnd)
 {
   int count = swell_accesskit_hwnd_has_text_run(hwnd) ? 1 : 0;
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
+  if (hwnd && !hwnd->m_parent && hwnd->m_menu) ++count;
   HWND child = hwnd ? hwnd->m_children : NULL;
   while (child)
   {
     if (!child->m_hashaddestroy && child->m_visible) ++count;
     child = child->m_next;
+  }
+  if (hwnd && !hwnd->m_parent)
+  {
+    HWND menu_owner = swell_accesskit_get_active_menu_owner();
+    if (menu_owner && swell_accesskit_contains_hwnd(hwnd, menu_owner))
+      count += swell_accesskit_get_active_menu_count();
   }
   return count;
 }
@@ -411,11 +580,26 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   if (!hwnd->m_enabled) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_DISABLED;
   if (hwnd->m_classname && !strcmp(hwnd->m_classname, "Edit") && (hwnd->m_style & ES_READONLY))
     node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_READ_ONLY;
+  if (swell_accesskit_hwnd_is_combo(hwnd))
+  {
+    node->pod.has_popup = SWELL_ACCESSKIT_HAS_POPUP_LISTBOX;
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_EXPANDED;
+    HWND menu_owner = swell_accesskit_get_active_menu_owner();
+    if (menu_owner == hwnd && swell_accesskit_get_active_menu_count() > 0)
+    {
+      node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_EXPANDED;
+      HWND menu_hwnd = swell_accesskit_get_active_menu_window(0);
+      HMENU menu = swell_accesskit_get_active_menu(0);
+      if (menu_hwnd && menu && menu->sel_vis >= 0)
+        node->pod.active_descendant = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, menu->sel_vis);
+    }
+  }
 
   const char *title = hwnd->m_title.Get();
   if (title && (title[0] || node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT))
   {
     if (node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT ||
+        node->pod.role == SWELL_ACCESSKIT_ROLE_COMBO_BOX || node->pod.role == SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX ||
         node->pod.role == SWELL_ACCESSKIT_ROLE_LABEL)
       swell_accesskit_copy_string(&node->pod.value, &node->value_storage, title);
     else
@@ -429,14 +613,18 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   {
     case SWELL_ACCESSKIT_ROLE_TEXT_INPUT:
     case SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT:
+    case SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX:
       node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_FOCUS_MASK;
       if (!(node->pod.flags & SWELL_ACCESSKIT_NODE_FLAG_READ_ONLY))
         node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_SET_VALUE_MASK;
-      if (swell_accesskit_hwnd_has_text_run(hwnd))
+      if (swell_accesskit_hwnd_has_text_run(hwnd) || swell_accesskit_hwnd_has_combo_text_run(hwnd))
       {
         node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION_MASK;
         swell_accesskit_fill_text_selection(hwnd, node);
       }
+    break;
+    case SWELL_ACCESSKIT_ROLE_COMBO_BOX:
+      node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_FOCUS_MASK | SWELL_ACCESSKIT_ACTION_CLICK_MASK;
     break;
     case SWELL_ACCESSKIT_ROLE_BUTTON:
     case SWELL_ACCESSKIT_ROLE_DEFAULT_BUTTON:
@@ -461,6 +649,23 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   }
   if (swell_accesskit_hwnd_has_text_run(hwnd))
     node->children_storage.push_back(swell_accesskit_text_run_id_for_hwnd(hwnd));
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
+    node->children_storage.push_back(swell_accesskit_combo_text_run_id_for_hwnd(hwnd));
+  if (!hwnd->m_parent && hwnd->m_menu)
+    node->children_storage.push_back(swell_accesskit_menu_bar_id_for_hwnd(hwnd));
+  if (!hwnd->m_parent)
+  {
+    HWND menu_owner = swell_accesskit_get_active_menu_owner();
+    if (menu_owner && swell_accesskit_contains_hwnd(hwnd, menu_owner))
+    {
+      const int active_menu_count = swell_accesskit_get_active_menu_count();
+      for (int i = 0; i < active_menu_count; ++i)
+      {
+        HWND menu_hwnd = swell_accesskit_get_active_menu_window(i);
+        if (menu_hwnd) node->children_storage.push_back(swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd));
+      }
+    }
+  }
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
 
@@ -472,9 +677,10 @@ static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwn
   if (!hwnd || !node) return;
 
   memset(&node->pod, 0, sizeof(node->pod));
-  node->pod.id = swell_accesskit_text_run_id_for_hwnd(hwnd);
+  const bool combo_text_run = swell_accesskit_hwnd_has_combo_text_run(hwnd);
+  node->pod.id = combo_text_run ? swell_accesskit_combo_text_run_id_for_hwnd(hwnd) : swell_accesskit_text_run_id_for_hwnd(hwnd);
   node->pod.role = SWELL_ACCESSKIT_ROLE_TEXT_RUN;
-  node->pod.bounds = swell_accesskit_text_run_bounds_for_hwnd(hwnd);
+  node->pod.bounds = combo_text_run ? swell_accesskit_combo_text_run_bounds_for_hwnd(hwnd) : swell_accesskit_text_run_bounds_for_hwnd(hwnd);
   swell_accesskit_copy_string(&node->pod.value, &node->value_storage, hwnd->m_title.Get() ? hwnd->m_title.Get() : "");
   swell_accesskit_build_character_lengths(hwnd->m_title.Get(), &node->character_lengths_storage);
   swell_accesskit_build_character_geometry(hwnd, hwnd->m_title.Get(), &node->character_positions_storage, &node->character_widths_storage);
@@ -484,6 +690,133 @@ static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwn
   node->pod.character_positions = node->character_positions_storage.empty() ? NULL : node->character_positions_storage.data();
   node->pod.character_width_count = node->character_widths_storage.size();
   node->pod.character_widths = node->character_widths_storage.empty() ? NULL : node->character_widths_storage.data();
+}
+
+static void swell_accesskit_populate_menu_item_common(SWELL_AccessKitOwnedNode *node, MENUITEMINFO *item, bool combo_option)
+{
+  if (!node || !item) return;
+
+  if (item->fState & (MF_GRAYED | MF_DISABLED)) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_DISABLED;
+  if (combo_option)
+  {
+    node->pod.role = SWELL_ACCESSKIT_ROLE_MENU_LIST_OPTION;
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED;
+    if (item->fState & MF_CHECKED) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+  }
+  else if (item->fState & MF_CHECKED)
+  {
+    node->pod.role = (item->fType & MFT_RADIOCHECK) ? SWELL_ACCESSKIT_ROLE_MENU_ITEM_RADIO : SWELL_ACCESSKIT_ROLE_MENU_ITEM_CHECK_BOX;
+    node->pod.toggled = SWELL_ACCESSKIT_TOGGLED_TRUE;
+  }
+  else
+  {
+    node->pod.role = SWELL_ACCESSKIT_ROLE_MENU_ITEM;
+  }
+
+  if (item->hSubMenu)
+  {
+    node->pod.has_popup = SWELL_ACCESSKIT_HAS_POPUP_MENU;
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_EXPANDED;
+  }
+
+  std::string access_key;
+  std::string shortcut;
+  const std::string label = swell_accesskit_menu_label_without_mnemonic(
+      swell_accesskit_menu_item_is_string(item) ? item->dwTypeData : "", &access_key, &shortcut);
+  swell_accesskit_copy_std_string(&node->pod.label, &node->label_storage, label);
+  if (!access_key.empty())
+    swell_accesskit_copy_std_string(&node->pod.access_key, &node->access_key_storage, access_key);
+  if (!shortcut.empty())
+    swell_accesskit_copy_std_string(&node->pod.keyboard_shortcut, &node->keyboard_shortcut_storage, shortcut);
+  node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_FOCUS_MASK | SWELL_ACCESSKIT_ACTION_CLICK_MASK;
+}
+
+static void swell_accesskit_populate_menu_bar_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+{
+  if (!hwnd || !node || !hwnd->m_menu) return;
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_menu_bar_id_for_hwnd(hwnd);
+  node->pod.role = SWELL_ACCESSKIT_ROLE_MENU_BAR;
+  RECT bounds = {0,};
+  GetWindowRect(hwnd, &bounds);
+  bounds.bottom = bounds.top + GetSystemMetrics(SM_CYMENU);
+  node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
+  for (int i = 0; i < hwnd->m_menu->items.GetSize(); ++i)
+  {
+    MENUITEMINFO *item = hwnd->m_menu->items.Get(i);
+    if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP))
+      node->children_storage.push_back(swell_accesskit_menu_bar_item_id_for_hwnd(hwnd, i));
+  }
+  node->pod.child_count = node->children_storage.size();
+  node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+}
+
+static void swell_accesskit_populate_menu_bar_item_node(HWND hwnd, int index, SWELL_AccessKitOwnedNode *node)
+{
+  if (!hwnd || !node || !hwnd->m_menu) return;
+  MENUITEMINFO *item = hwnd->m_menu->items.Get(index);
+  if (!item) return;
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_menu_bar_item_id_for_hwnd(hwnd, index);
+  swell_accesskit_populate_menu_item_common(node, item, false);
+  node->pod.position_in_set = swell_accesskit_menu_position_in_set(hwnd->m_menu, index);
+  node->pod.size_of_set = swell_accesskit_count_accessible_menu_items(hwnd->m_menu);
+
+  RECT bounds = {0,};
+  GetWindowRect(hwnd, &bounds);
+  const int menu_h = GetSystemMetrics(SM_CYMENU);
+  const int count = wdl_max(swell_accesskit_count_accessible_menu_items(hwnd->m_menu), 1);
+  const int width = wdl_max((bounds.right - bounds.left) / count, 1);
+  const int pos = wdl_max((int)node->pod.position_in_set - 1, 0);
+  bounds.left += width * pos;
+  bounds.right = bounds.left + width;
+  bounds.bottom = bounds.top + menu_h;
+  node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
+}
+
+static void swell_accesskit_populate_popup_menu_node(HWND menu_hwnd, HMENU menu, bool combo_popup, SWELL_AccessKitOwnedNode *node)
+{
+  if (!menu_hwnd || !menu || !node) return;
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd);
+  node->pod.role = combo_popup ? SWELL_ACCESSKIT_ROLE_MENU_LIST_POPUP : SWELL_ACCESSKIT_ROLE_MENU;
+  RECT bounds = {0,};
+  GetWindowRect(menu_hwnd, &bounds);
+  node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
+  node->pod.size_of_set = swell_accesskit_count_accessible_menu_items(menu);
+  if (menu->sel_vis >= 0)
+    node->pod.active_descendant = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, menu->sel_vis);
+  for (int i = 0; i < menu->items.GetSize(); ++i)
+  {
+    MENUITEMINFO *item = menu->items.Get(i);
+    if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP))
+      node->children_storage.push_back(swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, i));
+  }
+  node->pod.child_count = node->children_storage.size();
+  node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+}
+
+static void swell_accesskit_populate_popup_item_node(HWND menu_hwnd, HMENU menu, int index, bool combo_option, SWELL_AccessKitOwnedNode *node)
+{
+  if (!menu_hwnd || !menu || !node) return;
+  MENUITEMINFO *item = menu->items.Get(index);
+  if (!item) return;
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, index);
+  swell_accesskit_populate_menu_item_common(node, item, combo_option);
+  node->pod.position_in_set = swell_accesskit_menu_position_in_set(menu, index);
+  node->pod.size_of_set = swell_accesskit_count_accessible_menu_items(menu);
+  if (menu->sel_vis == index)
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED | SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+
+  RECT bounds = {0,};
+  GetWindowRect(menu_hwnd, &bounds);
+  const int count = wdl_max(swell_accesskit_count_accessible_menu_items(menu), 1);
+  const int height = wdl_max((bounds.bottom - bounds.top) / count, 1);
+  const int pos = wdl_max((int)node->pod.position_in_set - 1, 0);
+  bounds.top += height * pos;
+  bounds.bottom = bounds.top + height;
+  node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
 }
 
 static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapshot *snapshot, HWND hwnd, HWND focused)
@@ -501,6 +834,11 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
     snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
     swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
   }
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
+  {
+    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+    swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
+  }
 
   HWND child = hwnd->m_children;
   while (child)
@@ -508,6 +846,48 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
     if (!child->m_hashaddestroy && child->m_visible)
       swell_accesskit_snapshot_build_recursive(snapshot, child, focused);
     child = child->m_next;
+  }
+
+  if (!hwnd->m_parent && hwnd->m_menu)
+  {
+    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+    swell_accesskit_populate_menu_bar_node(hwnd, &snapshot->nodes.back());
+    for (int i = 0; i < hwnd->m_menu->items.GetSize(); ++i)
+    {
+      MENUITEMINFO *item = hwnd->m_menu->items.Get(i);
+      if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP))
+      {
+        snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+        swell_accesskit_populate_menu_bar_item_node(hwnd, i, &snapshot->nodes.back());
+      }
+    }
+  }
+
+  if (!hwnd->m_parent)
+  {
+    HWND menu_owner = swell_accesskit_get_active_menu_owner();
+    const bool combo_popup = swell_accesskit_hwnd_is_combo(menu_owner);
+    if (menu_owner && swell_accesskit_contains_hwnd(hwnd, menu_owner))
+    {
+      const int active_menu_count = swell_accesskit_get_active_menu_count();
+      for (int menu_index = 0; menu_index < active_menu_count; ++menu_index)
+      {
+        HWND menu_hwnd = swell_accesskit_get_active_menu_window(menu_index);
+        HMENU menu = swell_accesskit_get_active_menu(menu_index);
+        if (!menu_hwnd || !menu) continue;
+        snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+        swell_accesskit_populate_popup_menu_node(menu_hwnd, menu, combo_popup, &snapshot->nodes.back());
+        for (int i = 0; i < menu->items.GetSize(); ++i)
+        {
+          MENUITEMINFO *item = menu->items.Get(i);
+          if (swell_accesskit_menu_item_is_string(item) || (item && item->fType == MFT_BITMAP))
+          {
+            snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+            swell_accesskit_populate_popup_item_node(menu_hwnd, menu, i, combo_popup, &snapshot->nodes.back());
+          }
+        }
+      }
+    }
   }
 }
 
@@ -529,6 +909,17 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
   if (focused && swell_accesskit_get_root(focused) != root) focused = NULL;
 
   swell_accesskit_snapshot_build_recursive(snapshot, root, focused);
+
+  HWND menu_owner = swell_accesskit_get_active_menu_owner();
+  if (menu_owner && swell_accesskit_contains_hwnd(root, menu_owner) && swell_accesskit_get_active_menu_count() > 0)
+  {
+    HWND menu_hwnd = swell_accesskit_get_active_menu_window(swell_accesskit_get_active_menu_count() - 1);
+    HMENU menu = swell_accesskit_get_active_menu(swell_accesskit_get_active_menu_count() - 1);
+    if (menu_hwnd && menu && menu->sel_vis >= 0)
+      snapshot->focus_id = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, menu->sel_vis);
+    else if (menu_hwnd)
+      snapshot->focus_id = swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd);
+  }
 
   snapshot->exported_nodes.resize(snapshot->nodes.size());
   size_t i;
@@ -573,6 +964,7 @@ static HWND swell_accesskit_resolve_node_id(HWND parent, uint64_t node_id)
   if (!parent || parent->m_hashaddestroy || !parent->m_visible) return NULL;
   if (swell_accesskit_node_id_for_hwnd(parent) == node_id) return parent;
   if (swell_accesskit_hwnd_has_text_run(parent) && swell_accesskit_text_run_id_for_hwnd(parent) == node_id) return parent;
+  if (swell_accesskit_hwnd_has_combo_text_run(parent) && swell_accesskit_combo_text_run_id_for_hwnd(parent) == node_id) return parent;
 
   HWND child = parent->m_children;
   while (child)
@@ -590,9 +982,69 @@ static bool swell_accesskit_is_slider(HWND hwnd)
          (!strcmp(hwnd->m_classname, "msctls_trackbar32") || !strcmp(hwnd->m_classname, "REAPERhfader"));
 }
 
+static bool swell_accesskit_node_is_popup_item(uint64_t node_id)
+{
+  return (node_id & 0xf000000000000000ull) == SWELL_ACCESSKIT_SYNTHETIC_POPUP_ITEM;
+}
+
+static bool swell_accesskit_node_is_menu_bar_item(uint64_t node_id)
+{
+  return (node_id & 0xf000000000000000ull) == SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR_ITEM;
+}
+
+static int swell_accesskit_popup_item_index_from_node(uint64_t node_id)
+{
+  return (int)(node_id & 0xff);
+}
+
+static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *state, const swell_accesskit_action_request *action)
+{
+  if (!state || !action) return false;
+
+  if (swell_accesskit_node_is_menu_bar_item(action->target_node) && state->hwnd && state->hwnd->m_menu)
+  {
+    const int index = swell_accesskit_popup_item_index_from_node(action->target_node);
+    if (swell_accesskit_menu_bar_item_id_for_hwnd(state->hwnd, index) != action->target_node) return false;
+    if (action->action == SWELL_ACCESSKIT_ACTION_CLICK || action->action == SWELL_ACCESSKIT_ACTION_FOCUS)
+    {
+      SWELL_AccessKitOwnedNode temp;
+      swell_accesskit_populate_menu_bar_item_node(state->hwnd, index, &temp);
+      POINT pt = {
+        (int)((temp.pod.bounds.x0 + temp.pod.bounds.x1) * 0.5),
+        (int)((temp.pod.bounds.y0 + temp.pod.bounds.y1) * 0.5)
+      };
+      const LPARAM lp = MAKELPARAM(pt.x, pt.y);
+      SendMessage(state->hwnd, WM_NCLBUTTONDOWN, HTMENU, lp);
+      if (action->action == SWELL_ACCESSKIT_ACTION_CLICK)
+        SendMessage(state->hwnd, WM_NCLBUTTONUP, HTMENU, lp);
+      state->dirty = true;
+    }
+    return true;
+  }
+
+  if (!swell_accesskit_node_is_popup_item(action->target_node)) return false;
+
+  const int index = swell_accesskit_popup_item_index_from_node(action->target_node);
+  const int active_menu_count = swell_accesskit_get_active_menu_count();
+  for (int i = 0; i < active_menu_count; ++i)
+  {
+    HWND menu_hwnd = swell_accesskit_get_active_menu_window(i);
+    if (!menu_hwnd || swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, index) != action->target_node) continue;
+    if (action->action == SWELL_ACCESSKIT_ACTION_FOCUS)
+      swell_accesskit_select_menu_item(menu_hwnd, index);
+    else if (action->action == SWELL_ACCESSKIT_ACTION_CLICK)
+      swell_accesskit_activate_menu_item(menu_hwnd, index);
+    state->dirty = true;
+    return true;
+  }
+  return true;
+}
+
 static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, const swell_accesskit_action_request *action)
 {
   if (!state || !action) return;
+
+  if (swell_accesskit_apply_synthetic_action(state, action)) return;
 
   HWND target = swell_accesskit_resolve_node_id(state->hwnd, action->target_node);
   if (!target || target->m_hashaddestroy || !swell_accesskit_contains_hwnd(state->hwnd, target)) return;
@@ -607,7 +1059,8 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
   }
   else if (action->action == SWELL_ACCESSKIT_ACTION_SET_VALUE)
   {
-    if (target->m_classname && !strcmp(target->m_classname, "Edit") && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_STRING)
+    if (target->m_classname && (!strcmp(target->m_classname, "Edit") || swell_accesskit_combo_is_editable(target)) &&
+        action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_STRING)
       SetWindowText(target, action->string_value ? action->string_value : "");
     else if (swell_accesskit_is_slider(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_NUMERIC)
     {
@@ -618,7 +1071,9 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
   }
   else if (action->action == SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION)
   {
-    if (swell_accesskit_hwnd_has_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
+    if (swell_accesskit_hwnd_has_combo_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
+      SendMessage(target, EM_SETSEL, action->text_selection_anchor, action->text_selection_focus);
+    else if (swell_accesskit_hwnd_has_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
       swell_edit_control_set_accessibility_selection(target, (int)action->text_selection_anchor, (int)action->text_selection_focus);
   }
   else if ((action->action == SWELL_ACCESSKIT_ACTION_INCREMENT || action->action == SWELL_ACCESSKIT_ACTION_DECREMENT) &&
