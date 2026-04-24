@@ -28,6 +28,7 @@
 #include "swell-accesskit-shim.h"
 
 #include "../mutex.h"
+#include "../wdlutf8.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -50,6 +51,9 @@ struct SWELL_AccessKitOwnedNode
   std::string label_storage;
   std::string value_storage;
   std::vector<uint64_t> children_storage;
+  std::vector<uint8_t> character_lengths_storage;
+  std::vector<float> character_positions_storage;
+  std::vector<float> character_widths_storage;
 };
 
 struct SWELL_AccessKitOwnedSnapshot
@@ -73,6 +77,8 @@ static WDL_Mutex g_accesskit_mutex;
 static SWELL_AccessKitWindowState *g_accesskit_windows;
 static bool g_accesskit_debug = false;
 
+static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
+
 static HWND swell_accesskit_get_root(HWND hwnd)
 {
   while (hwnd && hwnd->m_parent) hwnd = hwnd->m_parent;
@@ -82,6 +88,16 @@ static HWND swell_accesskit_get_root(HWND hwnd)
 static uint64_t swell_accesskit_node_id_for_hwnd(HWND hwnd)
 {
   return (uint64_t)(uintptr_t)hwnd;
+}
+
+static bool swell_accesskit_hwnd_has_text_run(HWND hwnd)
+{
+  return hwnd && hwnd->m_classname && !strcmp(hwnd->m_classname, "Edit") && !(hwnd->m_style & ES_MULTILINE);
+}
+
+static uint64_t swell_accesskit_text_run_id_for_hwnd(HWND hwnd)
+{
+  return ((uint64_t)(uintptr_t)hwnd << 1) | 1u;
 }
 
 static void swell_accesskit_tree_id_for_hwnd(HWND hwnd, uint8_t tree_id[16])
@@ -118,7 +134,12 @@ static bool swell_accesskit_window_exists_locked(SWELL_AccessKitWindowState *nee
 
 static bool swell_accesskit_is_window_focused(HWND root)
 {
-  return root && root->m_oswindow && SWELL_focused_oswindow == root->m_oswindow && swell_is_app_inactive() <= 0;
+  if (!root || !root->m_oswindow) return false;
+  if (SWELL_focused_oswindow == root->m_oswindow && swell_is_app_inactive() <= 0) return true;
+
+  HWND focused = SWELL_GetFocusedChild(root);
+  if (!focused) focused = GetFocus();
+  return focused && swell_accesskit_contains_hwnd(root, focused) && swell_is_app_inactive() <= 0;
 }
 
 static swell_accesskit_rect swell_accesskit_rect_from_rect(const RECT *r)
@@ -152,6 +173,7 @@ static int swell_accesskit_count_nodes(HWND hwnd)
   if (!hwnd || hwnd->m_hashaddestroy || !hwnd->m_visible) return 0;
 
   int count = 1;
+  if (swell_accesskit_hwnd_has_text_run(hwnd)) ++count;
   HWND child = hwnd->m_children;
   while (child)
   {
@@ -196,10 +218,116 @@ static void swell_accesskit_copy_string(swell_accesskit_string_ref *dest, std::s
   dest->ptr = NULL;
   dest->len = 0;
   storage->clear();
-  if (!value || !*value) return;
+  if (!value) return;
   storage->assign(value);
   dest->ptr = storage->c_str();
   dest->len = storage->size();
+}
+
+static void swell_accesskit_build_character_lengths(const char *value, std::vector<uint8_t> *storage)
+{
+  if (!storage) return;
+  storage->clear();
+  if (!value) return;
+
+  while (*value)
+  {
+    const int len = wdl_utf8_parsechar(value, NULL);
+    const int use_len = len > 0 ? wdl_min(len, 255) : 1;
+    storage->push_back((uint8_t)use_len);
+    value += len > 0 ? len : 1;
+  }
+}
+
+static int swell_accesskit_measure_text_width(HDC hdc, const char *value, int byte_count)
+{
+  if (!hdc || !value || byte_count <= 0) return 0;
+
+  RECT rect = {0,};
+  DrawText(hdc, value, byte_count, &rect, DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
+  return rect.right - rect.left;
+}
+
+static void swell_accesskit_build_character_geometry(HWND hwnd, const char *value, std::vector<float> *positions, std::vector<float> *widths)
+{
+  if (!positions || !widths) return;
+  positions->clear();
+  widths->clear();
+  if (!hwnd || !value) return;
+
+  int scroll_x = 0;
+  swell_edit_control_get_accessibility_text_state(hwnd, NULL, NULL, NULL, &scroll_x);
+
+  HDC hdc = GetDC(hwnd);
+  if (!hdc) return;
+
+  int byte_pos = 0;
+  int previous_width = 0;
+  const float origin_offset = (float)-scroll_x;
+  while (value[byte_pos])
+  {
+    const int char_len = wdl_utf8_parsechar(value + byte_pos, NULL);
+    byte_pos += char_len > 0 ? char_len : 1;
+    const int next_width = swell_accesskit_measure_text_width(hdc, value, byte_pos);
+    positions->push_back(origin_offset + (float)previous_width);
+    widths->push_back((float)wdl_max(next_width - previous_width, 0));
+    previous_width = next_width;
+  }
+
+  ReleaseDC(hwnd, hdc);
+}
+
+static swell_accesskit_rect swell_accesskit_text_run_bounds_for_hwnd(HWND hwnd)
+{
+  RECT bounds = {0,};
+  if (!hwnd) return swell_accesskit_rect_from_rect(&bounds);
+
+  GetClientRect(hwnd, &bounds);
+  if (bounds.right - bounds.left > 4)
+  {
+    bounds.left += 2;
+    bounds.right -= 2;
+  }
+  if (bounds.bottom - bounds.top > 4)
+  {
+    bounds.top += 2;
+    bounds.bottom -= 2;
+  }
+  ClientToScreen(hwnd, (POINT *)&bounds);
+  ClientToScreen(hwnd, ((POINT *)&bounds) + 1);
+  return swell_accesskit_rect_from_rect(&bounds);
+}
+
+static void swell_accesskit_fill_text_selection(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+{
+  if (!hwnd || !node || !swell_accesskit_hwnd_has_text_run(hwnd)) return;
+
+  const int text_len = WDL_utf8_get_charlen(hwnd->m_title.Get());
+  int cursor_pos = text_len;
+  int sel1 = -1;
+  int sel2 = -1;
+  if (!swell_edit_control_get_accessibility_text_state(hwnd, &cursor_pos, &sel1, &sel2, NULL))
+  {
+    cursor_pos = text_len;
+    sel1 = sel2 = -1;
+  }
+
+  if (cursor_pos < 0) cursor_pos = 0;
+  if (cursor_pos > text_len) cursor_pos = text_len;
+
+  size_t anchor = (size_t)cursor_pos;
+  size_t focus = (size_t)cursor_pos;
+  if (sel1 >= 0 && sel2 > sel1)
+  {
+    if (cursor_pos == sel1)
+      anchor = (size_t)wdl_min(sel2, text_len);
+    else
+      anchor = (size_t)wdl_min(sel1, text_len);
+  }
+
+  node->pod.text_selection_node = swell_accesskit_text_run_id_for_hwnd(hwnd);
+  node->pod.text_selection_anchor = anchor;
+  node->pod.text_selection_focus = focus;
 }
 
 static void swell_accesskit_fill_button_state(HWND hwnd, SWELL_AccessKitOwnedNode *node)
@@ -250,7 +378,7 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
 
 static int swell_accesskit_count_direct_visible_children(HWND hwnd)
 {
-  int count = 0;
+  int count = swell_accesskit_hwnd_has_text_run(hwnd) ? 1 : 0;
   HWND child = hwnd ? hwnd->m_children : NULL;
   while (child)
   {
@@ -285,7 +413,7 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
     node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_READ_ONLY;
 
   const char *title = hwnd->m_title.Get();
-  if (title && *title)
+  if (title && (title[0] || node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT))
   {
     if (node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT ||
         node->pod.role == SWELL_ACCESSKIT_ROLE_LABEL)
@@ -304,6 +432,11 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_FOCUS_MASK;
       if (!(node->pod.flags & SWELL_ACCESSKIT_NODE_FLAG_READ_ONLY))
         node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_SET_VALUE_MASK;
+      if (swell_accesskit_hwnd_has_text_run(hwnd))
+      {
+        node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION_MASK;
+        swell_accesskit_fill_text_selection(hwnd, node);
+      }
     break;
     case SWELL_ACCESSKIT_ROLE_BUTTON:
     case SWELL_ACCESSKIT_ROLE_DEFAULT_BUTTON:
@@ -326,10 +459,31 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       node->children_storage.push_back(swell_accesskit_node_id_for_hwnd(child));
     child = child->m_next;
   }
+  if (swell_accesskit_hwnd_has_text_run(hwnd))
+    node->children_storage.push_back(swell_accesskit_text_run_id_for_hwnd(hwnd));
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
 
   if (hwnd == focused) node->pod.action_mask |= 0;
+}
+
+static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+{
+  if (!hwnd || !node) return;
+
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_text_run_id_for_hwnd(hwnd);
+  node->pod.role = SWELL_ACCESSKIT_ROLE_TEXT_RUN;
+  node->pod.bounds = swell_accesskit_text_run_bounds_for_hwnd(hwnd);
+  swell_accesskit_copy_string(&node->pod.value, &node->value_storage, hwnd->m_title.Get() ? hwnd->m_title.Get() : "");
+  swell_accesskit_build_character_lengths(hwnd->m_title.Get(), &node->character_lengths_storage);
+  swell_accesskit_build_character_geometry(hwnd, hwnd->m_title.Get(), &node->character_positions_storage, &node->character_widths_storage);
+  node->pod.character_length_count = node->character_lengths_storage.size();
+  node->pod.character_lengths = node->character_lengths_storage.empty() ? NULL : node->character_lengths_storage.data();
+  node->pod.character_position_count = node->character_positions_storage.size();
+  node->pod.character_positions = node->character_positions_storage.empty() ? NULL : node->character_positions_storage.data();
+  node->pod.character_width_count = node->character_widths_storage.size();
+  node->pod.character_widths = node->character_widths_storage.empty() ? NULL : node->character_widths_storage.data();
 }
 
 static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapshot *snapshot, HWND hwnd, HWND focused)
@@ -341,6 +495,12 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
   swell_accesskit_populate_node(hwnd, focused, node);
 
   if (hwnd == focused) snapshot->focus_id = node->pod.id;
+
+  if (swell_accesskit_hwnd_has_text_run(hwnd))
+  {
+    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+    swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
+  }
 
   HWND child = hwnd->m_children;
   while (child)
@@ -363,7 +523,9 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
   snapshot->nodes.clear();
   snapshot->nodes.reserve((size_t)node_count);
 
-  HWND focused = GetFocus();
+  HWND focused = SWELL_GetFocusedChild(root);
+  if (focused && !swell_accesskit_contains_hwnd(root, focused)) focused = NULL;
+  if (!focused) focused = GetFocus();
   if (focused && swell_accesskit_get_root(focused) != root) focused = NULL;
 
   swell_accesskit_snapshot_build_recursive(snapshot, root, focused);
@@ -406,6 +568,22 @@ static bool swell_accesskit_contains_hwnd(HWND parent, HWND target)
   return false;
 }
 
+static HWND swell_accesskit_resolve_node_id(HWND parent, uint64_t node_id)
+{
+  if (!parent || parent->m_hashaddestroy || !parent->m_visible) return NULL;
+  if (swell_accesskit_node_id_for_hwnd(parent) == node_id) return parent;
+  if (swell_accesskit_hwnd_has_text_run(parent) && swell_accesskit_text_run_id_for_hwnd(parent) == node_id) return parent;
+
+  HWND child = parent->m_children;
+  while (child)
+  {
+    HWND resolved = swell_accesskit_resolve_node_id(child, node_id);
+    if (resolved) return resolved;
+    child = child->m_next;
+  }
+  return NULL;
+}
+
 static bool swell_accesskit_is_slider(HWND hwnd)
 {
   return hwnd && hwnd->m_classname &&
@@ -416,7 +594,7 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
 {
   if (!state || !action) return;
 
-  HWND target = (HWND)(uintptr_t)action->target_node;
+  HWND target = swell_accesskit_resolve_node_id(state->hwnd, action->target_node);
   if (!target || target->m_hashaddestroy || !swell_accesskit_contains_hwnd(state->hwnd, target)) return;
 
   if (action->action == SWELL_ACCESSKIT_ACTION_FOCUS)
@@ -437,6 +615,11 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
       if (target->m_parent)
         SendMessage(target->m_parent, WM_HSCROLL, SB_ENDSCROLL, (LPARAM)target);
     }
+  }
+  else if (action->action == SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION)
+  {
+    if (swell_accesskit_hwnd_has_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
+      swell_edit_control_set_accessibility_selection(target, (int)action->text_selection_anchor, (int)action->text_selection_focus);
   }
   else if ((action->action == SWELL_ACCESSKIT_ACTION_INCREMENT || action->action == SWELL_ACCESSKIT_ACTION_DECREMENT) &&
            swell_accesskit_is_slider(target) && target->m_private_data)
@@ -589,6 +772,16 @@ void swell_accesskit_pump(void)
   g_accesskit_mutex.Leave();
 }
 
+void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text)
+{
+  if (g_accesskit_debug)
+  {
+    fprintf(stderr, "SWELL AccessKit key event type=%u keyval=%u hardware=%u modifiers=%u text=%d\n",
+        event_type, keyval, hardware_keycode, modifiers, is_text ? 1 : 0);
+  }
+  swell_accesskit_notify_keyboard_event(event_type, keyval, hardware_keycode, modifiers, timestamp, event_string, is_text ? 1 : 0);
+}
+
 #else
 
 void swell_accesskit_window_created(HWND hwnd) { (void)hwnd; }
@@ -596,6 +789,16 @@ void swell_accesskit_window_destroyed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_window_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_focus_changed(void) {}
 void swell_accesskit_pump(void) {}
+void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text)
+{
+  (void)event_type;
+  (void)keyval;
+  (void)hardware_keycode;
+  (void)modifiers;
+  (void)timestamp;
+  (void)event_string;
+  (void)is_text;
+}
 
 #endif
 

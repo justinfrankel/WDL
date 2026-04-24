@@ -44,6 +44,7 @@ extern "C" {
 #include "../wdlcstring.h"
 #include "../wdlutf8.h"
 
+#include <stdlib.h>
 
 #if !defined(SWELL_TARGET_GDK_NO_CURSOR_HACK)
   #define SWELL_TARGET_GDK_CURSORHACK
@@ -1388,6 +1389,32 @@ static void OnKeyEvent(GdkEventKey *k)
   HWND foc = GetFocusIncludeMenus();
   if (foc && IsChild(hwnd,foc)) hwnd=foc;
   else if (foc && foc->m_oswindow && !(foc->m_style&WS_CAPTION)) hwnd=foc; // for menus, event sent to other window due to gdk_window_set_override_redirect()
+
+  if ((getenv("WAYLAND_DISPLAY") || getenv("SWELL_ACCESSKIT_NOTIFY_KEYS")) && hwnd)
+  {
+    const char *event_string = "";
+    bool is_text = false;
+    const guint unicode = gdk_keyval_to_unicode(k->keyval);
+    const guint text_suppressing_mods = GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK | GDK_HYPER_MASK | GDK_META_MASK;
+    if (k->string && k->length > 0 && unicode >= 0x20 && unicode != 0x7f && !(k->state & text_suppressing_mods))
+    {
+      event_string = k->string;
+      is_text = true;
+    }
+    else
+    {
+      const char *key_name = gdk_keyval_name(k->keyval);
+      if (key_name) event_string = key_name;
+    }
+
+    swell_accesskit_keyboard_event(k->type == GDK_KEY_PRESS ? 0 : 1,
+        (uint32_t)k->keyval,
+        (uint32_t)k->hardware_keycode,
+        (uint32_t)k->state,
+        (int32_t)k->time,
+        event_string,
+        is_text);
+  }
 
   if (is_extended) modifiers |= 1<<24;
 

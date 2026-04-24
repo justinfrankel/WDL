@@ -1617,7 +1617,17 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
     ctx.clipr.bottom = ctx.clipr.top + bmout->getHeight();
 
     void *oldpaintctx = hwnd->m_paintctx;
-    if (forceref) hwnd->m_paintctx = &ctx;
+    if (forceref)
+    {
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdangling-pointer"
+#endif
+      hwnd->m_paintctx = &ctx;
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+    }
 
     LICE_SubBitmap tmpsub(NULL,0,0,0,0);
     if (hwnd->m_wndproc) // this happens after m_paintctx is set -- that way GetWindowDC()/GetDC()/ReleaseDC() know to not actually update the screen

@@ -23,6 +23,7 @@ enum
   SWELL_ACCESSKIT_ROLE_PROGRESS_INDICATOR = 10,
   SWELL_ACCESSKIT_ROLE_GROUP = 11,
   SWELL_ACCESSKIT_ROLE_COMBO_BOX = 12,
+  SWELL_ACCESSKIT_ROLE_TEXT_RUN = 13,
 };
 
 enum
@@ -32,6 +33,7 @@ enum
   SWELL_ACCESSKIT_ACTION_SET_VALUE_MASK = 1u << 2,
   SWELL_ACCESSKIT_ACTION_INCREMENT_MASK = 1u << 3,
   SWELL_ACCESSKIT_ACTION_DECREMENT_MASK = 1u << 4,
+  SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION_MASK = 1u << 5,
 };
 
 enum
@@ -67,6 +69,7 @@ enum
   SWELL_ACCESSKIT_ACTION_SET_VALUE = 3,
   SWELL_ACCESSKIT_ACTION_INCREMENT = 4,
   SWELL_ACCESSKIT_ACTION_DECREMENT = 5,
+  SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION = 6,
 };
 
 enum
@@ -74,6 +77,7 @@ enum
   SWELL_ACCESSKIT_ACTION_DATA_NONE = 0,
   SWELL_ACCESSKIT_ACTION_DATA_STRING = 1,
   SWELL_ACCESSKIT_ACTION_DATA_NUMERIC = 2,
+  SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION = 3,
 };
 
 typedef struct swell_accesskit_rect
@@ -105,6 +109,15 @@ typedef struct swell_accesskit_node
   double numeric_value_step;
   size_t child_count;
   const uint64_t *children;
+  uint64_t text_selection_node;
+  size_t text_selection_anchor;
+  size_t text_selection_focus;
+  size_t character_length_count;
+  const uint8_t *character_lengths;
+  size_t character_position_count;
+  const float *character_positions;
+  size_t character_width_count;
+  const float *character_widths;
   swell_accesskit_string_ref label;
   swell_accesskit_string_ref value;
 } swell_accesskit_node;
@@ -124,6 +137,8 @@ typedef struct swell_accesskit_action_request
   uint32_t data_kind;
   char *string_value;
   double numeric_value;
+  size_t text_selection_anchor;
+  size_t text_selection_focus;
 } swell_accesskit_action_request;
 
 struct swell_accesskit_host;
@@ -143,6 +158,14 @@ int swell_accesskit_host_pop_action(
     swell_accesskit_action_request *out_action);
 char *swell_accesskit_host_debug(const struct swell_accesskit_host *host);
 void swell_accesskit_string_free(char *string_value);
+void swell_accesskit_notify_keyboard_event(
+    uint32_t event_type,
+    uint32_t keyval,
+    uint32_t hardware_keycode,
+    uint32_t modifiers,
+    int32_t timestamp,
+    const char *event_string,
+    int is_text);
 
 #ifdef __cplusplus
 }

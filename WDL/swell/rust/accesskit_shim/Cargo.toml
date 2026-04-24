@@ -10,3 +10,4 @@ crate-type = ["staticlib"]
 [dependencies]
 accesskit = { path = "../../../../../accesskit/common" }
 accesskit_unix = { path = "../../../../../accesskit/platforms/unix" }
+zbus = { version = "5.14.0", default-features = false, features = ["async-io", "blocking-api"] }

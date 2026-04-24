@@ -1861,6 +1861,57 @@ static int utf8fs_charpos_to_bytepos(const WDL_FastString *fs, int charpos)
   return charpos < fs->GetLength() ? WDL_utf8_charpos_to_bytepos(fs->Get(),charpos) : fs->GetLength();
 }
 
+static bool swell_is_edit_hwnd(HWND hwnd)
+{
+  return hwnd && hwnd->m_classname && !strcmp(hwnd->m_classname, "Edit");
+}
+
+static void swell_edit_apply_selection_state(HWND hwnd, __SWELL_editControlState *es, int anchor, int focus, bool notify_accesskit)
+{
+  if (!hwnd || !es) return;
+
+  const int max_pos = WDL_utf8_get_charlen(hwnd->m_title.Get());
+  if (anchor < 0) anchor = 0;
+  if (focus < 0) focus = 0;
+  if (anchor > max_pos) anchor = max_pos;
+  if (focus > max_pos) focus = max_pos;
+
+  es->cursor_pos = focus;
+  if (anchor == focus)
+    es->sel1 = es->sel2 = -1;
+  else
+  {
+    es->sel1 = wdl_min(anchor, focus);
+    es->sel2 = wdl_max(anchor, focus);
+  }
+
+  es->autoScrollToOffset(hwnd, focus,
+      (hwnd->m_style & ES_MULTILINE) != 0,
+      (hwnd->m_style & (ES_MULTILINE|ES_AUTOHSCROLL)) == ES_MULTILINE);
+  InvalidateRect(hwnd,NULL,FALSE);
+  if (notify_accesskit) swell_accesskit_window_changed(hwnd);
+}
+
+bool swell_edit_control_get_accessibility_text_state(HWND hwnd, int *cursor_pos, int *sel_start, int *sel_end, int *scroll_x)
+{
+  if (!swell_is_edit_hwnd(hwnd) || !hwnd->m_private_data) return false;
+
+  __SWELL_editControlState *es = (__SWELL_editControlState *) hwnd->m_private_data;
+  if (cursor_pos) *cursor_pos = es->cursor_pos;
+  if (sel_start) *sel_start = es->sel1;
+  if (sel_end) *sel_end = es->sel2;
+  if (scroll_x) *scroll_x = es->scroll_x;
+  return true;
+}
+
+bool swell_edit_control_set_accessibility_selection(HWND hwnd, int anchor, int focus)
+{
+  if (!swell_is_edit_hwnd(hwnd) || !hwnd->m_private_data) return false;
+
+  swell_edit_apply_selection_state(hwnd, (__SWELL_editControlState *) hwnd->m_private_data, anchor, focus, true);
+  return true;
+}
+
 
 
 static bool editGetCharPos(HDC hdc, const char *str, int singleline_len, int charpos, int line_h, POINT *pt, int word_wrap,
@@ -2531,8 +2582,13 @@ static LRESULT WINAPI editWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         {
           OnEditKeyDown(hwnd,WM_KEYDOWN,'V',FVIRTKEY|FCONTROL,false,false,es,true);
           SendMessage(GetParent(hwnd),WM_COMMAND,(EN_CHANGE<<16) | (hwnd->m_id&0xffff),(LPARAM)hwnd);
+          swell_accesskit_window_changed(hwnd);
         }
-        else if (a==102) SendMessage(hwnd,EM_SETSEL,0,-1);
+        else if (a==102)
+        {
+          SendMessage(hwnd,EM_SETSEL,0,-1);
+          swell_accesskit_window_changed(hwnd);
+        }
 
         if (a) InvalidateRect(hwnd,NULL,FALSE);
 
@@ -2618,6 +2674,7 @@ static LRESULT WINAPI editWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
       if (msg == WM_LBUTTONDOWN) SetCapture(hwnd);
 
       InvalidateRect(hwnd,NULL,FALSE);
+      if (msg == WM_LBUTTONDOWN) swell_accesskit_window_changed(hwnd);
     return 0;
     case WM_MOUSEWHEEL:
       if (es && (hwnd->m_style & ES_MULTILINE))
@@ -2735,6 +2792,7 @@ forceMouseMove:
 
 
           InvalidateRect(hwnd,NULL,FALSE);
+          swell_accesskit_window_changed(hwnd);
         }
       }
     return 0;
@@ -2755,6 +2813,7 @@ forceMouseMove:
         es->sel1 = 0;
         es->cursor_pos = es->sel2 = WDL_utf8_get_charlen(hwnd->m_title.Get());
         InvalidateRect(hwnd,NULL,FALSE);
+        swell_accesskit_window_changed(hwnd);
       }
     return 0;
     case WM_KEYDOWN:
@@ -2784,6 +2843,7 @@ forceMouseMove:
             );
             InvalidateRect(hwnd,NULL,FALSE);
           }
+          swell_accesskit_window_changed(hwnd);
           return 0;
         }
       }
@@ -2997,15 +3057,10 @@ again:
     case EM_SETSEL:
       if (es) 
       {
-        es->sel1 = (int)wParam;
-        es->sel2 = (int)lParam;
-        if (!es->sel1 && es->sel2 == -1) es->sel2 = WDL_utf8_get_charlen(hwnd->m_title.Get());
-        InvalidateRect(hwnd,NULL,FALSE);
-        if (es->sel2>=0)
-          es->autoScrollToOffset(hwnd,es->sel2,
-               (hwnd->m_style & ES_MULTILINE) != 0,
-               (hwnd->m_style & (ES_MULTILINE|ES_AUTOHSCROLL)) == ES_MULTILINE);
-
+        int anchor = (int)wParam;
+        int focus = (int)lParam;
+        if (!anchor && focus == -1) focus = WDL_utf8_get_charlen(hwnd->m_title.Get());
+        swell_edit_apply_selection_state(hwnd, es, anchor, focus, true);
       }
     return 0;
     case EM_SCROLL:

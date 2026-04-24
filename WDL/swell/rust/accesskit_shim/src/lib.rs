@@ -1,13 +1,16 @@
 use accesskit::{
     Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, Node,
-    NodeId, Orientation, Rect, Role, Toggled, Tree, TreeId, TreeUpdate,
+    NodeId, Orientation, Rect, Role, TextDirection, TextPosition, TextSelection, Toggled, Tree,
+    TreeId, TreeUpdate,
 };
 use accesskit_unix::Adapter;
 use std::collections::VecDeque;
+use std::env;
 use std::ffi::{c_char, CString};
 use std::ptr;
 use std::slice;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
+use zbus::blocking::{connection::Builder as ConnectionBuilder, Connection, Proxy};
 
 const ROLE_WINDOW: u32 = 1;
 const ROLE_LABEL: u32 = 2;
@@ -21,12 +24,14 @@ const ROLE_SLIDER: u32 = 9;
 const ROLE_PROGRESS_INDICATOR: u32 = 10;
 const ROLE_GROUP: u32 = 11;
 const ROLE_COMBO_BOX: u32 = 12;
+const ROLE_TEXT_RUN: u32 = 13;
 
 const ACTION_FOCUS_MASK: u32 = 1u32 << 0;
 const ACTION_CLICK_MASK: u32 = 1u32 << 1;
 const ACTION_SET_VALUE_MASK: u32 = 1u32 << 2;
 const ACTION_INCREMENT_MASK: u32 = 1u32 << 3;
 const ACTION_DECREMENT_MASK: u32 = 1u32 << 4;
+const ACTION_SET_TEXT_SELECTION_MASK: u32 = 1u32 << 5;
 
 const NODE_FLAG_DISABLED: u32 = 1u32 << 0;
 const NODE_FLAG_READ_ONLY: u32 = 1u32 << 1;
@@ -48,10 +53,18 @@ const ACTION_CLICK: u32 = 2;
 const ACTION_SET_VALUE: u32 = 3;
 const ACTION_INCREMENT: u32 = 4;
 const ACTION_DECREMENT: u32 = 5;
+const ACTION_SET_TEXT_SELECTION: u32 = 6;
 
 const ACTION_DATA_NONE: u32 = 0;
 const ACTION_DATA_STRING: u32 = 1;
 const ACTION_DATA_NUMERIC: u32 = 2;
+const ACTION_DATA_TEXT_SELECTION: u32 = 3;
+
+const ATSPI_REGISTRY_BUS_NAME: &str = "org.a11y.atspi.Registry";
+const ATSPI_DEVICE_EVENT_CONTROLLER_PATH: &str = "/org/a11y/atspi/registry/deviceeventcontroller";
+const ATSPI_DEVICE_EVENT_CONTROLLER_INTERFACE: &str = "org.a11y.atspi.DeviceEventController";
+
+static ATSPI_CONNECTION: OnceLock<Option<Connection>> = OnceLock::new();
 
 #[repr(C)]
 pub struct swell_accesskit_rect {
@@ -82,6 +95,15 @@ pub struct swell_accesskit_node {
     numeric_value_step: f64,
     child_count: usize,
     children: *const u64,
+    text_selection_node: u64,
+    text_selection_anchor: usize,
+    text_selection_focus: usize,
+    character_length_count: usize,
+    character_lengths: *const u8,
+    character_position_count: usize,
+    character_positions: *const f32,
+    character_width_count: usize,
+    character_widths: *const f32,
     label: swell_accesskit_string_ref,
     value: swell_accesskit_string_ref,
 }
@@ -101,6 +123,8 @@ pub struct swell_accesskit_action_request {
     data_kind: u32,
     string_value: *mut c_char,
     numeric_value: f64,
+    text_selection_anchor: usize,
+    text_selection_focus: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +134,8 @@ struct QueuedAction {
     data_kind: u32,
     string_value: Option<String>,
     numeric_value: f64,
+    text_selection_anchor: usize,
+    text_selection_focus: usize,
 }
 
 #[derive(Default)]
@@ -162,6 +188,8 @@ impl QueuedAction {
             data_kind: ACTION_DATA_NONE,
             string_value: None,
             numeric_value: 0.0,
+            text_selection_anchor: 0,
+            text_selection_focus: 0,
         };
 
         if let Some(data) = request.data {
@@ -173,6 +201,11 @@ impl QueuedAction {
                 ActionData::NumericValue(value) => {
                     queued.data_kind = ACTION_DATA_NUMERIC;
                     queued.numeric_value = value;
+                }
+                ActionData::SetTextSelection(selection) => {
+                    queued.data_kind = ACTION_DATA_TEXT_SELECTION;
+                    queued.text_selection_anchor = selection.anchor.character_index;
+                    queued.text_selection_focus = selection.focus.character_index;
                 }
                 _ => {}
             }
@@ -196,6 +229,7 @@ fn map_role(value: u32) -> Role {
         ROLE_PROGRESS_INDICATOR => Role::ProgressIndicator,
         ROLE_GROUP => Role::Group,
         ROLE_COMBO_BOX => Role::ComboBox,
+        ROLE_TEXT_RUN => Role::TextRun,
         _ => Role::Unknown,
     }
 }
@@ -207,6 +241,7 @@ fn map_action(value: Action) -> u32 {
         Action::SetValue => ACTION_SET_VALUE,
         Action::Increment => ACTION_INCREMENT,
         Action::Decrement => ACTION_DECREMENT,
+        Action::SetTextSelection => ACTION_SET_TEXT_SELECTION,
         _ => ACTION_NONE,
     }
 }
@@ -227,6 +262,9 @@ fn apply_action_mask(node: &mut Node, action_mask: u32) {
     if (action_mask & ACTION_DECREMENT_MASK) != 0 {
         node.add_action(Action::Decrement);
     }
+    if (action_mask & ACTION_SET_TEXT_SELECTION_MASK) != 0 {
+        node.add_action(Action::SetTextSelection);
+    }
 }
 
 fn rect_from_ffi(rect: &swell_accesskit_rect) -> Rect {
@@ -239,7 +277,7 @@ fn rect_from_ffi(rect: &swell_accesskit_rect) -> Rect {
 }
 
 unsafe fn string_from_ffi(raw: &swell_accesskit_string_ref) -> Option<String> {
-    if raw.ptr.is_null() || raw.len == 0 {
+    if raw.ptr.is_null() {
         return None;
     }
     let bytes = slice::from_raw_parts(raw.ptr.cast::<u8>(), raw.len);
@@ -255,6 +293,36 @@ unsafe fn children_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<NodeId>> {
     }
     let children = slice::from_raw_parts(raw.children, raw.child_count);
     Some(children.iter().copied().map(NodeId).collect())
+}
+
+unsafe fn character_lengths_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<u8>> {
+    if raw.character_length_count == 0 {
+        return Some(Vec::new());
+    }
+    if raw.character_lengths.is_null() {
+        return None;
+    }
+    Some(slice::from_raw_parts(raw.character_lengths, raw.character_length_count).to_vec())
+}
+
+unsafe fn character_positions_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<f32>> {
+    if raw.character_position_count == 0 {
+        return Some(Vec::new());
+    }
+    if raw.character_positions.is_null() {
+        return None;
+    }
+    Some(slice::from_raw_parts(raw.character_positions, raw.character_position_count).to_vec())
+}
+
+unsafe fn character_widths_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<f32>> {
+    if raw.character_width_count == 0 {
+        return Some(Vec::new());
+    }
+    if raw.character_widths.is_null() {
+        return None;
+    }
+    Some(slice::from_raw_parts(raw.character_widths, raw.character_width_count).to_vec())
 }
 
 unsafe fn build_tree_update(
@@ -305,6 +373,24 @@ unsafe fn build_tree_update(
         if (raw.flags & NODE_FLAG_HAS_NUMERIC_VALUE_STEP) != 0 {
             node.set_numeric_value_step(raw.numeric_value_step);
         }
+        if raw.text_selection_node != 0 {
+            node.set_text_selection(TextSelection {
+                anchor: TextPosition {
+                    node: NodeId(raw.text_selection_node),
+                    character_index: raw.text_selection_anchor,
+                },
+                focus: TextPosition {
+                    node: NodeId(raw.text_selection_node),
+                    character_index: raw.text_selection_focus,
+                },
+            });
+        }
+        if raw.role == ROLE_TEXT_RUN {
+            node.set_character_lengths(character_lengths_from_ffi(raw)?);
+            node.set_character_positions(character_positions_from_ffi(raw)?);
+            node.set_character_widths(character_widths_from_ffi(raw)?);
+            node.set_text_direction(TextDirection::LeftToRight);
+        }
         apply_action_mask(&mut node, raw.action_mask);
 
         let child_ids = children_from_ffi(raw)?;
@@ -317,7 +403,11 @@ unsafe fn build_tree_update(
     }
 
     let root = NodeId(snapshot.root_id);
-    let focus = if snapshot.focus_id == 0 { root } else { NodeId(snapshot.focus_id) };
+    let focus = if snapshot.focus_id == 0 {
+        root
+    } else {
+        NodeId(snapshot.focus_id)
+    };
     Some(TreeUpdate {
         nodes,
         tree: Some(Tree {
@@ -333,6 +423,88 @@ unsafe fn build_tree_update(
 fn make_c_string(value: &str) -> *mut c_char {
     let sanitized = value.replace('\0', " ");
     CString::new(sanitized).map_or(ptr::null_mut(), CString::into_raw)
+}
+
+fn debug_enabled() -> bool {
+    env::var_os("SWELL_ACCESSKIT_DEBUG").is_some()
+}
+
+fn atspi_connection() -> Option<&'static Connection> {
+    ATSPI_CONNECTION
+        .get_or_init(|| {
+            let session = match Connection::session() {
+                Ok(session) => session,
+                Err(error) => {
+                    if debug_enabled() {
+                        eprintln!("SWELL AccessKit AT-SPI session bus connection failed: {error}");
+                    }
+                    return None;
+                }
+            };
+            let bus_proxy =
+                match Proxy::new(&session, "org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus") {
+                    Ok(proxy) => proxy,
+                    Err(error) => {
+                        if debug_enabled() {
+                            eprintln!("SWELL AccessKit AT-SPI bus proxy creation failed: {error}");
+                        }
+                        return None;
+                    }
+                };
+            let address: String = match bus_proxy.call("GetAddress", &()) {
+                Ok(address) => address,
+                Err(error) => {
+                    if debug_enabled() {
+                        eprintln!("SWELL AccessKit AT-SPI GetAddress failed: {error}");
+                    }
+                    return None;
+                }
+            };
+            match ConnectionBuilder::address(address.as_str()).and_then(|builder| builder.build()) {
+                Ok(connection) => Some(connection),
+                Err(error) => {
+                    if debug_enabled() {
+                        eprintln!("SWELL AccessKit AT-SPI bus connection failed: {error}");
+                    }
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+fn notify_atspi_keyboard_event(
+    event_type: u32,
+    keyval: u32,
+    hardware_keycode: u32,
+    modifiers: u32,
+    timestamp: i32,
+    event_string: &str,
+    is_text: bool,
+) -> zbus::Result<()> {
+    let Some(connection) = atspi_connection() else {
+        return Ok(());
+    };
+    let proxy = Proxy::new(
+        connection,
+        ATSPI_REGISTRY_BUS_NAME,
+        ATSPI_DEVICE_EVENT_CONTROLLER_PATH,
+        ATSPI_DEVICE_EVENT_CONTROLLER_INTERFACE,
+    )?;
+
+    // AT-SPI's DeviceEvent DBus signature is (uiiiisb). Orca uses it to
+    // classify subsequent caret events as character/word/line navigation.
+    let event = (
+        event_type,
+        keyval as i32,
+        hardware_keycode as i32,
+        modifiers as i32,
+        timestamp,
+        event_string,
+        is_text,
+    );
+    let _: () = proxy.call("NotifyListenersAsync", &(event,))?;
+    Ok(())
 }
 
 #[no_mangle]
@@ -440,6 +612,8 @@ pub extern "C" fn swell_accesskit_host_pop_action(
         (*out_action).action = action.action;
         (*out_action).data_kind = action.data_kind;
         (*out_action).numeric_value = action.numeric_value;
+        (*out_action).text_selection_anchor = action.text_selection_anchor;
+        (*out_action).text_selection_focus = action.text_selection_focus;
         (*out_action).string_value = action
             .string_value
             .as_deref()
@@ -455,7 +629,11 @@ pub extern "C" fn swell_accesskit_host_debug(host: *const swell_accesskit_host) 
     }
 
     let host = unsafe { &*host };
-    let queued_actions = host.shared.actions.lock().map_or(0, |actions| actions.len());
+    let queued_actions = host
+        .shared
+        .actions
+        .lock()
+        .map_or(0, |actions| actions.len());
     let description = match host.shared.cached_update.lock() {
         Ok(cached) => {
             if let Some(update) = cached.as_ref() {
@@ -475,6 +653,43 @@ pub extern "C" fn swell_accesskit_string_free(string_value: *mut c_char) {
     if !string_value.is_null() {
         unsafe {
             drop(CString::from_raw(string_value));
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn swell_accesskit_notify_keyboard_event(
+    event_type: u32,
+    keyval: u32,
+    hardware_keycode: u32,
+    modifiers: u32,
+    timestamp: i32,
+    event_string: *const c_char,
+    is_text: i32,
+) {
+    let event_string = if event_string.is_null() {
+        String::new()
+    } else {
+        let mut len = 0;
+        unsafe {
+            while *event_string.add(len) != 0 {
+                len += 1;
+            }
+            let bytes = slice::from_raw_parts(event_string.cast::<u8>(), len);
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    };
+    if let Err(error) = notify_atspi_keyboard_event(
+        event_type,
+        keyval,
+        hardware_keycode,
+        modifiers,
+        timestamp,
+        &event_string,
+        is_text != 0,
+    ) {
+        if debug_enabled() {
+            eprintln!("SWELL AccessKit AT-SPI key event notify failed: {error}");
         }
     }
 }

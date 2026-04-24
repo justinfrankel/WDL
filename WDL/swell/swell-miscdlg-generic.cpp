@@ -852,7 +852,7 @@ treatAsDir:
                    {
                      snprintf(msg,sizeof(msg),"Error opening directory:\r\n\r\n%.1000s\r\n\r\nCreate?",buf);
                      if (MessageBox(hwnd,msg,"Create directory?",MB_OKCANCEL)==IDCANCEL) return 0;
-                     CreateDirectory(buf,NULL);
+                     (void)CreateDirectory(buf,NULL);
                      dir=opendir(buf);
                    }
                    if (!dir) { MessageBox(hwnd,"Error creating directory","Error",MB_OK); return 0; }
