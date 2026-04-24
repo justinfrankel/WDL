@@ -1,0 +1,6 @@
+*.o
+*.so
+WDL/swell/sample_project/myapp
+WDL/swell/sample_project/res.rc_mac_dlg
+WDL/swell/sample_project/res.rc_mac_menu
+WDL/swell/rust/accesskit_shim/target/
