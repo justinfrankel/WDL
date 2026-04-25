@@ -7128,6 +7128,14 @@ bool swell_accesskit_get_listview_export_range(HWND hwnd, swell_accesskit_collec
   if (first < 0) first = 0;
   if (first >= info.item_count) first = wdl_max(info.item_count - 1,0);
   if (first + count > info.item_count) count = info.item_count - first;
+  const int active = info.focused_index >= 0 ? info.focused_index : info.selected_index;
+  if (active >= 0 && active < info.item_count && count > 0)
+  {
+    if (active < first) first = active;
+    else if (active >= first + count) first = active - count + 1;
+    if (first < 0) first = 0;
+    if (first + count > info.item_count) first = wdl_max(info.item_count - count,0);
+  }
   range->first = first;
   range->count = count;
   return true;

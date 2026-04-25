@@ -159,6 +159,7 @@ static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_GRID_CELL = 0x8000000000000000ul
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COLUMN_HEADER = 0x9000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TREE_ITEM = 0xa000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TAB = 0xb000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION = 0xc000000000000000ull;
 
 static uint64_t swell_accesskit_pointer_bits(const void *ptr)
 {
@@ -230,6 +231,48 @@ static uint64_t swell_accesskit_tree_item_id(HTREEITEM item)
 static uint64_t swell_accesskit_tab_id_for_hwnd(HWND hwnd, int index)
 {
   return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_TAB, index);
+}
+
+static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
+{
+  return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION, index + 1);
+}
+
+static bool swell_accesskit_get_combo_current_option(HWND hwnd, std::string *text, int *selected_index, int *item_count)
+{
+  if (text) text->clear();
+  if (selected_index) *selected_index = -1;
+  if (item_count) *item_count = 0;
+  if (!swell_accesskit_hwnd_is_combo(hwnd)) return false;
+
+  const int count = (int)SendMessage(hwnd, CB_GETCOUNT, 0, 0);
+  if (item_count) *item_count = count > 0 ? count : 0;
+
+  const int sel = (int)SendMessage(hwnd, CB_GETCURSEL, 0, 0);
+  if (sel >= 0 && count > 0 && sel < count)
+  {
+    if (selected_index) *selected_index = sel;
+    const int len = (int)SendMessage(hwnd, CB_GETLBTEXTLEN, (WPARAM)sel, 0);
+    if (len >= 0 && text)
+    {
+      std::vector<char> buf((size_t)len + 1);
+      if (SendMessage(hwnd, CB_GETLBTEXT, (WPARAM)sel, (LPARAM)buf.data()) != CB_ERR)
+        text->assign(buf.data());
+    }
+  }
+
+  if (text && text->empty() && hwnd->m_title.Get() && hwnd->m_title.Get()[0])
+    text->assign(hwnd->m_title.Get());
+
+  return text ? !text->empty() : (sel >= 0 && count > 0 && sel < count);
+}
+
+static bool swell_accesskit_hwnd_has_collapsed_combo_option(HWND hwnd)
+{
+  std::string text;
+  return swell_accesskit_hwnd_is_combo(hwnd) &&
+      swell_accesskit_get_active_menu_owner() != hwnd &&
+      swell_accesskit_get_combo_current_option(hwnd, &text, NULL, NULL);
 }
 
 static void swell_accesskit_tree_id_for_hwnd(HWND hwnd, uint8_t tree_id[16])
@@ -329,6 +372,7 @@ static int swell_accesskit_count_nodes(HWND hwnd)
   }
   if (swell_accesskit_hwnd_has_text_run(hwnd)) ++count;
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
+  if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd)) ++count;
   if (!hwnd->m_parent && hwnd->m_menu)
     count += 1 + swell_accesskit_count_accessible_menu_items(hwnd->m_menu);
   HWND child = hwnd->m_children;
@@ -653,6 +697,7 @@ static int swell_accesskit_count_direct_visible_children(HWND hwnd)
 {
   int count = swell_accesskit_hwnd_has_text_run(hwnd) ? 1 : 0;
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
+  if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd)) ++count;
   if (swell_accesskit_hwnd_is_listview(hwnd))
   {
     swell_accesskit_listview_info info;
@@ -725,6 +770,13 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       HMENU menu = swell_accesskit_get_active_menu(0);
       if (menu_hwnd && menu && menu->sel_vis >= 0)
         node->pod.active_descendant = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, menu->sel_vis);
+    }
+    else
+    {
+      int selected_index = -1;
+      std::string text;
+      if (swell_accesskit_get_combo_current_option(hwnd, &text, &selected_index, NULL))
+        node->pod.active_descendant = swell_accesskit_combo_option_id_for_hwnd(hwnd, selected_index);
     }
   }
   if (swell_accesskit_hwnd_is_listview(hwnd))
@@ -827,6 +879,13 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
     node->children_storage.push_back(swell_accesskit_text_run_id_for_hwnd(hwnd));
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
     node->children_storage.push_back(swell_accesskit_combo_text_run_id_for_hwnd(hwnd));
+  if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd))
+  {
+    int selected_index = -1;
+    std::string text;
+    swell_accesskit_get_combo_current_option(hwnd, &text, &selected_index, NULL);
+    node->children_storage.push_back(swell_accesskit_combo_option_id_for_hwnd(hwnd, selected_index));
+  }
   if (swell_accesskit_hwnd_is_listview(hwnd))
   {
     swell_accesskit_listview_info info;
@@ -911,6 +970,25 @@ static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwn
   node->pod.character_positions = node->character_positions_storage.empty() ? NULL : node->character_positions_storage.data();
   node->pod.character_width_count = node->character_widths_storage.size();
   node->pod.character_widths = node->character_widths_storage.empty() ? NULL : node->character_widths_storage.data();
+}
+
+static void swell_accesskit_populate_combo_option_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+{
+  if (!hwnd || !node) return;
+
+  std::string text;
+  int selected_index = -1;
+  int item_count = 0;
+  if (!swell_accesskit_get_combo_current_option(hwnd, &text, &selected_index, &item_count)) return;
+
+  memset(&node->pod, 0, sizeof(node->pod));
+  node->pod.id = swell_accesskit_combo_option_id_for_hwnd(hwnd, selected_index);
+  node->pod.role = SWELL_ACCESSKIT_ROLE_LIST_BOX_OPTION;
+  swell_accesskit_copy_std_string(&node->pod.label, &node->label_storage, text);
+  node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED | SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+  if (selected_index >= 0) node->pod.position_in_set = (size_t)selected_index + 1;
+  if (item_count > 0) node->pod.size_of_set = (size_t)item_count;
+  node->pod.bounds = swell_accesskit_combo_text_run_bounds_for_hwnd(hwnd);
 }
 
 static void swell_accesskit_populate_menu_item_common(SWELL_AccessKitOwnedNode *node, MENUITEMINFO *item, bool combo_option)
@@ -1361,6 +1439,11 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
   {
     snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
     swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
+  }
+  if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd))
+  {
+    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+    swell_accesskit_populate_combo_option_node(hwnd, &snapshot->nodes.back());
   }
   if (swell_accesskit_hwnd_is_listview(hwnd))
   {
