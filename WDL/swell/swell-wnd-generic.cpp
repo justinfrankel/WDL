@@ -4823,6 +4823,7 @@ forceMouseMove:
 
               ListView_EnsureVisible(hwnd,offs,FALSE);
               InvalidateRect(hwnd,NULL,FALSE);
+              swell_accesskit_window_changed(hwnd);
               break;
             }
           }
@@ -4924,6 +4925,7 @@ forceMouseMove:
               SendMessage(GetParent(hwnd),WM_NOTIFY,hwnd->m_id,(LPARAM)&nm);
             }
             ListView_EnsureVisible(hwnd,lvs->m_selitem,FALSE);
+            swell_accesskit_window_changed(hwnd);
           }
           if (flag&1) InvalidateRect(hwnd,NULL,FALSE);
 
@@ -6805,6 +6807,7 @@ bool ListView_SetItemState(HWND h, int ipos, UINT state, UINT statemask)
       __rent--;
     }
     if (!_is_doing_all) ListView_RedrawItems(h,ipos,ipos);
+    swell_accesskit_window_changed(h);
   }
   return true;
 }
@@ -6968,6 +6971,7 @@ void ListView_EnsureVisible(HWND h, int i, BOOL pok)
     if (oldy != lvs->m_scroll_y)
     {
       InvalidateRect(h,NULL,FALSE);
+      swell_accesskit_window_changed(h);
     }
   }
 
