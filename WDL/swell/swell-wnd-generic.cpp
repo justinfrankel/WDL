@@ -671,6 +671,11 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
  // todo: handle SWP_SHOWWINDOW
   RECT f = hwnd->m_position;
   int reposflag = 0;
+  if (!(flags&SWP_NOSIZE))
+  {
+    if (cx < 0) cx = 0;
+    if (cy < 0) cy = 0;
+  }
   WDL_ASSERT((flags & SWP_NOSIZE) || cx>=0);
   WDL_ASSERT((flags & SWP_NOSIZE) || cy>=0);
   if (!(flags&SWP_NOZORDER))
@@ -6450,6 +6455,52 @@ int TabCtrl_GetCurSel(HWND hwnd)
   return s ? s->m_curtab : -1;
 }
 
+bool swell_accesskit_get_tab_info(HWND hwnd, swell_accesskit_tab_info *info)
+{
+  tabControlState *s = hwnd ? (tabControlState*) hwnd->m_private_data : NULL;
+  if (!info) return false;
+  memset(info,0,sizeof(*info));
+  if (!s || !hwnd->m_classname || strcmp(hwnd->m_classname,"SysTabControl32")) return false;
+  info->valid = true;
+  info->count = s->m_tabs.GetSize();
+  info->selected_index = s->m_curtab;
+  return true;
+}
+
+bool swell_accesskit_get_tab_text(HWND hwnd, int index, char *buf, int buflen)
+{
+  tabControlState *s = hwnd ? (tabControlState*) hwnd->m_private_data : NULL;
+  if (!buf || buflen < 1 || !s || index < 0 || index >= s->m_tabs.GetSize()) return false;
+  lstrcpyn_safe(buf,s->m_tabs.Get(index) ? s->m_tabs.Get(index) : "",buflen);
+  return true;
+}
+
+bool swell_accesskit_get_tab_rect(HWND hwnd, int index, RECT *rect)
+{
+  tabControlState *s = hwnd ? (tabControlState*) hwnd->m_private_data : NULL;
+  if (!rect || !s || index < 0 || index >= s->m_tabs.GetSize()) return false;
+  HDC dc = GetDC(hwnd);
+  int left = 0;
+  for (int i = 0; i <= index; ++i)
+  {
+    RECT tr = {0,};
+    DrawText(dc,s->m_tabs.Get(i) ? s->m_tabs.Get(i) : "",-1,&tr,DT_CALCRECT|DT_NOPREFIX|DT_SINGLELINE);
+    const int width = tr.right - tr.left + 2*SWELL_UI_SCALE(4);
+    if (i == index)
+    {
+      rect->left = left;
+      rect->right = left + width;
+      rect->top = 0;
+      rect->bottom = TABCONTROL_HEIGHT;
+      ReleaseDC(hwnd,dc);
+      return true;
+    }
+    left += width + SWELL_UI_SCALE(6);
+  }
+  ReleaseDC(hwnd,dc);
+  return false;
+}
+
 void ListView_SetExtendedListViewStyleEx(HWND h, int flag, int mask)
 {
   listViewState *lvs = h ? (listViewState *)h->m_private_data : NULL;
@@ -7025,6 +7076,97 @@ int ListView_GetCountPerPage(HWND h)
   return (cr.bottom-cr.top) / lvs->m_last_row_height;
 }
 
+bool swell_accesskit_get_listview_info(HWND hwnd, swell_accesskit_listview_info *info)
+{
+  listViewState *lvs = hwnd ? (listViewState *)hwnd->m_private_data : NULL;
+  if (!info) return false;
+  memset(info,0,sizeof(*info));
+  if (!lvs || !hwnd->m_classname || strcmp(hwnd->m_classname,"SysListView32")) return false;
+
+  RECT cr;
+  GetClientRect(hwnd,&cr);
+  const int total_width = lvs->getTotalWidth();
+  const int header_height = lvs->GetColumnHeaderHeight(hwnd);
+  const int row_height = lvs->m_last_row_height > 0 ? lvs->m_last_row_height : SWELL_UI_SCALE(18);
+  const int view_height = wdl_max(cr.bottom - cr.top - header_height, 0);
+  const int total_height = row_height * lvs->GetNumItems();
+
+  info->valid = true;
+  info->is_listbox = lvs->m_is_listbox;
+  info->is_report = !lvs->m_is_listbox && (hwnd->m_style & LVS_REPORT);
+  info->is_owner_data = lvs->IsOwnerData();
+  info->is_multiselect = lvs->m_is_multisel;
+  info->item_count = lvs->GetNumItems();
+  info->column_count = wdl_max(lvs->m_cols.GetSize(),1);
+  info->focused_index = lvs->m_selitem;
+  info->selected_index = ListView_GetSelectionMark(hwnd);
+  info->row_height = row_height;
+  info->header_height = header_height;
+  info->scroll_x = lvs->m_scroll_x;
+  info->scroll_y = lvs->m_scroll_y;
+  info->scroll_x_max = wdl_max(total_width - (cr.right - cr.left), 0);
+  info->scroll_y_max = wdl_max(total_height - view_height, 0);
+  return true;
+}
+
+bool swell_accesskit_get_listview_export_range(HWND hwnd, swell_accesskit_collection_range *range)
+{
+  swell_accesskit_listview_info info;
+  if (!range || !swell_accesskit_get_listview_info(hwnd,&info)) return false;
+  range->total = info.item_count;
+  if (info.item_count <= 1000 && !info.is_owner_data)
+  {
+    range->first = 0;
+    range->count = info.item_count;
+    return true;
+  }
+  const int row_height = wdl_max(info.row_height,1);
+  int first = info.scroll_y / row_height;
+  int count = ListView_GetCountPerPage(hwnd);
+  if (count < 1) count = 1;
+  count += 2;
+  if (first < 0) first = 0;
+  if (first >= info.item_count) first = wdl_max(info.item_count - 1,0);
+  if (first + count > info.item_count) count = info.item_count - first;
+  range->first = first;
+  range->count = count;
+  return true;
+}
+
+bool swell_accesskit_get_listview_item_identity(HWND hwnd, int index, uintptr_t *identity)
+{
+  listViewState *lvs = hwnd ? (listViewState *)hwnd->m_private_data : NULL;
+  if (!identity || !lvs || index < 0 || index >= lvs->GetNumItems()) return false;
+  SWELL_ListView_Row *row = lvs->IsOwnerData() ? NULL : lvs->m_data.Get(index);
+  *identity = row ? (uintptr_t)row : (uintptr_t)index;
+  return true;
+}
+
+bool swell_accesskit_get_listview_item_text(HWND hwnd, int index, int column, char *buf, int buflen)
+{
+  if (!buf || buflen < 1) return false;
+  LVITEM item = { LVIF_TEXT, index, column, 0, 0, buf, buflen };
+  buf[0] = 0;
+  return ListView_GetItem(hwnd,&item);
+}
+
+bool swell_accesskit_get_listview_column_text(HWND hwnd, int column, char *buf, int buflen)
+{
+  if (!buf || buflen < 1) return false;
+  LVCOLUMN lvc = { LVCF_TEXT };
+  lvc.pszText = buf;
+  lvc.cchTextMax = buflen;
+  buf[0] = 0;
+  ListView_GetColumn(hwnd,column,&lvc);
+  return true;
+}
+
+bool swell_accesskit_get_listview_item_rect(HWND hwnd, int index, int column, RECT *rect)
+{
+  if (!rect) return false;
+  return column >= 0 ? ListView_GetSubItemRect(hwnd,index,column,0,rect) : ListView_GetItemRect(hwnd,index,rect,0);
+}
+
 HWND ChildWindowFromPoint(HWND h, POINT p)
 {
   if (WDL_NOT_NORMALLY(!h)) return 0;
@@ -7439,6 +7581,134 @@ static RECT g_menubar_lastrect;
 static HWND g_menubar_active;
 static bool g_menubar_active_drag;
 
+static int menuBarFindNavigableItem(HWND hwnd, int start, int dir, RECT *rOut)
+{
+  if (!hwnd || !hwnd->m_menu || !dir) return -1;
+  HMENU__ *menu = (HMENU__*)hwnd->m_menu;
+  const int n = menu->items.GetSize();
+  if (n < 1) return -1;
+
+  for (int i = 0; i < n; ++i)
+  {
+    int x = start + dir * i;
+    while (x < 0) x += n;
+    x %= n;
+
+    RECT r = {0,};
+    if (menuBarHitTest(hwnd,0,0,&r,x,-1) < 0) continue;
+    MENUITEMINFO *inf = menu->items.Get(x);
+    if (inf && !(inf->fState & MF_GRAYED) && (inf->hSubMenu || inf->wID))
+    {
+      if (rOut) *rOut = r;
+      return x;
+    }
+  }
+  return -1;
+}
+
+static void menuBarDeactivate(HWND hwnd)
+{
+  if (!hwnd || g_menubar_active != hwnd) return;
+
+  HMENU__ *menu = hwnd->m_menu;
+  if (menu) menu->sel_vis = -1;
+  g_menubar_active = NULL;
+  g_menubar_active_drag = false;
+
+  RECT mbr;
+  GetWindowContentViewRect(hwnd,&mbr);
+  mbr.right -= mbr.left;
+  mbr.left=0;
+  mbr.bottom = 0;
+  mbr.top = -g_swell_ctheme.menubar_height;
+  InvalidateRect(hwnd,&mbr,FALSE);
+  swell_accesskit_window_changed(hwnd);
+}
+
+static bool menuBarActivate(HWND hwnd, int start)
+{
+  if (!hwnd || !hwnd->m_menu) return false;
+  HMENU__ *menu = (HMENU__*)hwnd->m_menu;
+
+  RECT r;
+  const int x = menuBarFindNavigableItem(hwnd,start,1,&r);
+  if (x < 0) return false;
+
+  menu->sel_vis = x;
+  g_menubar_lastrect = r;
+  g_menubar_active = hwnd;
+  g_menubar_active_drag = false;
+
+  RECT mbr;
+  GetWindowContentViewRect(hwnd,&mbr);
+  mbr.right -= mbr.left;
+  mbr.left=0;
+  mbr.bottom = 0;
+  mbr.top = -g_swell_ctheme.menubar_height;
+  InvalidateRect(hwnd,&mbr,FALSE);
+  swell_accesskit_window_changed(hwnd);
+  return true;
+}
+
+static bool menuBarNavigateFocused(HWND hwnd, int dir)
+{
+  if (!hwnd || !hwnd->m_menu || g_menubar_active != hwnd) return false;
+  HMENU__ *menu = (HMENU__*)hwnd->m_menu;
+  RECT r;
+  const int x = menuBarFindNavigableItem(hwnd,menu->sel_vis + dir,dir,&r);
+  if (x < 0) return false;
+
+  menu->sel_vis = x;
+  g_menubar_lastrect = r;
+
+  RECT mbr;
+  GetWindowContentViewRect(hwnd,&mbr);
+  mbr.right -= mbr.left;
+  mbr.left=0;
+  mbr.bottom = 0;
+  mbr.top = -g_swell_ctheme.menubar_height;
+  InvalidateRect(hwnd,&mbr,FALSE);
+  swell_accesskit_window_changed(hwnd);
+  return true;
+}
+
+HWND swell_accesskit_get_active_menubar_window(void)
+{
+  return g_menubar_active && !g_menubar_active_drag ? g_menubar_active : NULL;
+}
+
+int swell_accesskit_get_active_menubar_index(void)
+{
+  HWND hwnd = swell_accesskit_get_active_menubar_window();
+  return hwnd && hwnd->m_menu ? hwnd->m_menu->sel_vis : -1;
+}
+
+bool swell_accesskit_focus_menubar_item(HWND hwnd, int index)
+{
+  if (!hwnd || !hwnd->m_menu) return false;
+  HMENU__ *menu = (HMENU__*)hwnd->m_menu;
+  MENUITEMINFO *inf = menu->items.Get(index);
+  if (!inf || (inf->fState & MF_GRAYED) || (!inf->hSubMenu && !inf->wID)) return false;
+
+  RECT r;
+  if (menuBarHitTest(hwnd,0,0,&r,index,-1) < 0) return false;
+
+  menu->sel_vis = index;
+  g_menubar_lastrect = r;
+  g_menubar_active = hwnd;
+  g_menubar_active_drag = false;
+
+  RECT mbr;
+  GetWindowContentViewRect(hwnd,&mbr);
+  mbr.right -= mbr.left;
+  mbr.left=0;
+  mbr.bottom = 0;
+  mbr.top = -g_swell_ctheme.menubar_height;
+  InvalidateRect(hwnd,&mbr,FALSE);
+  swell_accesskit_window_changed(hwnd);
+  return true;
+}
+
 HWND swell_window_wants_all_input()
 {
   return g_menubar_active_drag ? g_menubar_active : NULL;
@@ -7449,7 +7719,7 @@ int menuBarNavigate(int dir) // -1 if no menu bar active, 0 if did nothing, 1 if
   if (!g_menubar_active || !g_menubar_active->m_menu) return -1;
   HMENU__ *menu = (HMENU__*)g_menubar_active->m_menu;
   RECT r;
-  const int x = menuBarHitTest(g_menubar_active,0,0,&r,menu->sel_vis + dir, -1);
+  const int x = menuBarFindNavigableItem(g_menubar_active,menu->sel_vis + dir,dir,&r);
   if (x>=0)
   {
     MENUITEMINFO *inf = menu->items.Get(x);
@@ -7496,6 +7766,7 @@ static void runMenuBar(HWND hwnd, HMENU__ *menu, int x, const RECT *use_r, int f
   menu->sel_vis=-1;
   InvalidateRect(hwnd,&mbr,FALSE);
   g_menubar_active = NULL;
+  g_menubar_active_drag=false;
   g_trackpopup_yroot.top = g_trackpopup_yroot.bottom = 0;
   menu->Release();
 }
@@ -7688,6 +7959,53 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_KEYDOWN:
     case WM_KEYUP: 
         if (hwnd->m_parent) return SendMessage(hwnd->m_parent,msg,wParam,lParam);
+
+        if (msg == WM_KEYDOWN && hwnd->m_menu && (lParam & FVIRTKEY))
+        {
+          const bool no_mods = !(lParam & (FSHIFT|FCONTROL|FALT));
+          if (wParam == VK_F10 && no_mods)
+          {
+            if (g_menubar_active == hwnd && !g_menubar_active_drag)
+              menuBarDeactivate(hwnd);
+            else
+              menuBarActivate(hwnd,0);
+            return 1;
+          }
+          if (g_menubar_active == hwnd && !g_menubar_active_drag)
+          {
+            HMENU__ *menu = (HMENU__*)hwnd->m_menu;
+            switch (wParam)
+            {
+              case VK_LEFT:
+                menuBarNavigateFocused(hwnd,-1);
+              return 1;
+              case VK_RIGHT:
+                menuBarNavigateFocused(hwnd,1);
+              return 1;
+              case VK_ESCAPE:
+                menuBarDeactivate(hwnd);
+              return 1;
+              case VK_DOWN:
+              case VK_RETURN:
+              case VK_SPACE:
+                {
+                  MENUITEMINFO *inf = menu->items.Get(menu->sel_vis);
+                  if (inf && inf->hSubMenu)
+                  {
+                    RECT r = g_menubar_lastrect;
+                    g_menubar_active_drag = true;
+                    runMenuBar(hwnd,menu,menu->sel_vis,&r,0xbeee);
+                  }
+                  else if (inf && inf->wID)
+                  {
+                    menuBarDeactivate(hwnd);
+                    SendMessage(hwnd,WM_COMMAND,inf->wID,0);
+                  }
+                }
+              return 1;
+            }
+          }
+        }
 
         if (msg == WM_KEYDOWN && hwnd->m_menu && 
             lParam == (FVIRTKEY | FALT) && (
@@ -8301,6 +8619,119 @@ HTREEITEM TreeView_GetNextSibling(HWND hwnd, HTREEITEM item)
   if (WDL_NOT_NORMALLY(!tvs || !tvs->findItem(item,&par,&idx))) return NULL;
 
   return (par ? par : &tvs->m_root)->m_children.Get(idx+1);
+}
+
+static void swell_accesskit_count_visible_tree_items(HTREEITEM item, int *count)
+{
+  if (!item || !count) return;
+  if (item->m_value) ++*count;
+  if ((item->m_state & TVIS_EXPANDED) && item->m_haschildren)
+  {
+    for (int i = 0; i < item->m_children.GetSize(); ++i)
+      swell_accesskit_count_visible_tree_items(item->m_children.Get(i),count);
+  }
+}
+
+static HTREEITEM swell_accesskit_find_visible_tree_item(HTREEITEM item, int *index)
+{
+  if (!item || !index) return NULL;
+  if (item->m_value)
+  {
+    if (*index == 0) return item;
+    --*index;
+  }
+  if ((item->m_state & TVIS_EXPANDED) && item->m_haschildren)
+  {
+    for (int i = 0; i < item->m_children.GetSize(); ++i)
+    {
+      HTREEITEM found = swell_accesskit_find_visible_tree_item(item->m_children.Get(i),index);
+      if (found) return found;
+    }
+  }
+  return NULL;
+}
+
+static bool swell_accesskit_get_tree_item_position(treeViewState *tvs, HTREEITEM item, HTREEITEM *parent, int *index)
+{
+  if (!tvs || !item) return false;
+  HTREEITEM par = NULL;
+  int idx = 0;
+  if (!tvs->findItem(item,&par,&idx)) return false;
+  if (parent) *parent = par;
+  if (index) *index = idx;
+  return true;
+}
+
+static int swell_accesskit_get_tree_item_level(treeViewState *tvs, HTREEITEM item)
+{
+  int level = 1;
+  HTREEITEM par = NULL;
+  while (swell_accesskit_get_tree_item_position(tvs,item,&par,NULL) && par)
+  {
+    ++level;
+    item = par;
+  }
+  return level;
+}
+
+bool swell_accesskit_get_treeview_info(HWND hwnd, swell_accesskit_treeview_info *info)
+{
+  treeViewState *tvs = hwnd ? (treeViewState *)hwnd->m_private_data : NULL;
+  if (!info) return false;
+  memset(info,0,sizeof(*info));
+  if (!tvs || !hwnd->m_classname || strcmp(hwnd->m_classname,"SysTreeView32")) return false;
+  int visible_count = 0;
+  for (int i = 0; i < tvs->m_root.m_children.GetSize(); ++i)
+    swell_accesskit_count_visible_tree_items(tvs->m_root.m_children.Get(i),&visible_count);
+  RECT cr;
+  GetClientRect(hwnd,&cr);
+  const int row_height = tvs->m_last_row_height > 0 ? tvs->m_last_row_height : SWELL_UI_SCALE(18);
+  info->valid = true;
+  info->visible_count = visible_count;
+  info->row_height = row_height;
+  info->scroll_y = tvs->m_scroll_y;
+  info->scroll_y_max = wdl_max(visible_count * row_height - (cr.bottom - cr.top),0);
+  info->selected_item = tvs->m_sel;
+  return true;
+}
+
+HTREEITEM swell_accesskit_get_treeview_visible_item(HWND hwnd, int visible_index)
+{
+  treeViewState *tvs = hwnd ? (treeViewState *)hwnd->m_private_data : NULL;
+  if (!tvs || visible_index < 0) return NULL;
+  for (int i = 0; i < tvs->m_root.m_children.GetSize(); ++i)
+  {
+    HTREEITEM found = swell_accesskit_find_visible_tree_item(tvs->m_root.m_children.Get(i),&visible_index);
+    if (found) return found;
+  }
+  return NULL;
+}
+
+bool swell_accesskit_get_treeview_item_info(HWND hwnd, HTREEITEM item, swell_accesskit_treeitem_info *info)
+{
+  treeViewState *tvs = hwnd ? (treeViewState *)hwnd->m_private_data : NULL;
+  if (!info) return false;
+  memset(info,0,sizeof(*info));
+  HTREEITEM par = NULL;
+  int idx = 0;
+  if (!tvs || !item || !swell_accesskit_get_tree_item_position(tvs,item,&par,&idx)) return false;
+  RECT cr;
+  GetClientRect(hwnd,&cr);
+  const int row_height = tvs->m_last_row_height > 0 ? tvs->m_last_row_height : SWELL_UI_SCALE(18);
+  const int y = tvs->calculateContentsHeight(item) - tvs->m_scroll_y;
+  info->valid = true;
+  info->label = item->m_value ? item->m_value : "";
+  info->selected = item == tvs->m_sel;
+  info->has_children = item->m_haschildren;
+  info->expanded = (item->m_state & TVIS_EXPANDED) != 0;
+  info->level = swell_accesskit_get_tree_item_level(tvs,item);
+  info->position_in_set = idx + 1;
+  info->size_of_set = (par ? par : &tvs->m_root)->m_children.GetSize();
+  info->rect.left = cr.left + (info->level - 1) * row_height;
+  info->rect.right = cr.right;
+  info->rect.top = y;
+  info->rect.bottom = y + row_height;
+  return true;
 }
 BOOL TreeView_SetIndent(HWND hwnd, int indent)
 {

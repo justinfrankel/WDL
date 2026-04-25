@@ -72,6 +72,12 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       resize.init_item(IDC_COMBO_DROPDOWN, 1, 0, 1, 0);
       resize.init_item(IDC_COMBO_EDITABLE, 1, 0, 1, 0);
       resize.init_item(IDC_SLIDER1, 1, 0, 1, 0);
+      resize.init_item(IDC_PROGRESS1, 1, 0, 1, 0);
+      resize.init_item(IDC_LISTBOX1, 1, 0, 1, 1);
+      resize.init_item(IDC_EDIT_MULTILINE, 1, 0, 1, 1);
+      resize.init_item(IDC_LISTVIEW1, 1, 0, 1, 1);
+      resize.init_item(IDC_TREE1, 1, 0, 1, 1);
+      resize.init_item(IDC_TAB1, 1, 0, 1, 1);
       resize.init_item(IDCANCEL,0,1,0,1);
 
       HMENU menu = LoadMenu(NULL, MAKEINTRESOURCE(IDR_MENU1));
@@ -113,6 +119,85 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         SendMessage(slider, TBM_SETRANGE, TRUE, MAKELONG(0, 10));
         SendMessage(slider, TBM_SETTIC, 0, 5);
         SendMessage(slider, TBM_SETPOS, TRUE, 5);
+      }
+
+      HWND progress = GetDlgItem(hwndDlg, IDC_PROGRESS1);
+      if (progress)
+      {
+        SendMessage(progress, PBM_SETRANGE, 0, MAKELONG(0, 10));
+        SendMessage(progress, PBM_SETPOS, 5, 0);
+      }
+
+      HWND listbox = GetDlgItem(hwndDlg, IDC_LISTBOX1);
+      if (listbox)
+      {
+        SendMessage(listbox, LB_ADDSTRING, 0, (LPARAM)"List alpha");
+        SendMessage(listbox, LB_ADDSTRING, 0, (LPARAM)"List bravo");
+        SendMessage(listbox, LB_ADDSTRING, 0, (LPARAM)"List charlie");
+        SendMessage(listbox, LB_SETCURSEL, 1, 0);
+      }
+
+      SetDlgItemText(hwndDlg, IDC_EDIT_MULTILINE, "First line\nSecond line\nThird line");
+
+      HWND listview = GetDlgItem(hwndDlg, IDC_LISTVIEW1);
+      if (listview)
+      {
+        LVCOLUMN col = { LVCF_TEXT | LVCF_WIDTH };
+        col.pszText = (char *)"Name";
+        col.cx = 72;
+        ListView_InsertColumn(listview, 0, &col);
+        col.pszText = (char *)"State";
+        col.cx = 72;
+        ListView_InsertColumn(listview, 1, &col);
+        LVITEM item = { LVIF_TEXT | LVIF_STATE };
+        item.stateMask = LVIS_SELECTED | LVIS_FOCUSED;
+        item.iItem = 0;
+        item.pszText = (char *)"Row alpha";
+        ListView_InsertItem(listview, &item);
+        ListView_SetItemText(listview, 0, 1, "Ready");
+        item.iItem = 1;
+        item.state = LVIS_SELECTED | LVIS_FOCUSED;
+        item.pszText = (char *)"Row bravo";
+        ListView_InsertItem(listview, &item);
+        ListView_SetItemText(listview, 1, 1, "Selected");
+        item.iItem = 2;
+        item.state = 0;
+        item.pszText = (char *)"Row charlie";
+        ListView_InsertItem(listview, &item);
+        ListView_SetItemText(listview, 2, 1, "Idle");
+      }
+
+      HWND tree = GetDlgItem(hwndDlg, IDC_TREE1);
+      if (tree)
+      {
+        TV_INSERTSTRUCT ins = { 0 };
+        ins.hParent = TVI_ROOT;
+        ins.hInsertAfter = TVI_LAST;
+        ins.item.mask = TVIF_TEXT | TVIF_CHILDREN;
+        ins.item.pszText = (char *)"Parent";
+        ins.item.cChildren = 1;
+        HTREEITEM parent = TreeView_InsertItem(tree, &ins);
+        ins.hParent = parent;
+        ins.item.mask = TVIF_TEXT;
+        ins.item.pszText = (char *)"Child alpha";
+        HTREEITEM child = TreeView_InsertItem(tree, &ins);
+        ins.item.pszText = (char *)"Child bravo";
+        TreeView_InsertItem(tree, &ins);
+        TreeView_Expand(tree, parent, TVE_EXPAND);
+        TreeView_SelectItem(tree, child);
+      }
+
+      HWND tabs = GetDlgItem(hwndDlg, IDC_TAB1);
+      if (tabs)
+      {
+        TCITEM tab = { TCIF_TEXT };
+        tab.pszText = (char *)"One";
+        TabCtrl_InsertItem(tabs, 0, &tab);
+        tab.pszText = (char *)"Two";
+        TabCtrl_InsertItem(tabs, 1, &tab);
+        tab.pszText = (char *)"Three";
+        TabCtrl_InsertItem(tabs, 2, &tab);
+        TabCtrl_SetCurSel(tabs, 0);
       }
       set_status(hwndDlg, "AccessKit demo ready");
       }
@@ -163,6 +248,15 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
             char buf[256];
             GetWindowText((HWND)lParam, buf, sizeof(buf));
             set_status(hwndDlg, buf);
+          }
+        return 1;
+        case IDC_LISTBOX1:
+          if (HIWORD(wParam) == LBN_SELCHANGE)
+          {
+            char buf[256];
+            int sel = (int)SendMessage((HWND)lParam, LB_GETCURSEL, 0, 0);
+            if (sel >= 0 && SendMessage((HWND)lParam, LB_GETTEXT, sel, (LPARAM)buf) != LB_ERR)
+              set_status(hwndDlg, buf);
           }
         return 1;
         case ID_SAMPLE_HELLO:

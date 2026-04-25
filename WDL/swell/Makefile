@@ -111,7 +111,16 @@ OBJS = $(SWELL_OBJS)
 ACCESSKIT_SHIM_DIR ?= rust/accesskit_shim
 ACCESSKIT_SHIM_MANIFEST := $(ACCESSKIT_SHIM_DIR)/Cargo.toml
 ACCESSKIT_SHIM_RS := $(wildcard $(ACCESSKIT_SHIM_DIR)/src/*.rs)
-ACCESSKIT_SHIM_LIB := $(ACCESSKIT_SHIM_DIR)/target/release/libswell_accesskit_shim.a
+ifdef DEBUG
+ACCESSKIT_SHIM_PROFILE ?= debug
+else
+ACCESSKIT_SHIM_PROFILE ?= release
+endif
+ACCESSKIT_SHIM_LIB := $(ACCESSKIT_SHIM_DIR)/target/$(ACCESSKIT_SHIM_PROFILE)/libswell_accesskit_shim.a
+ACCESSKIT_SHIM_CARGO_FLAGS :=
+ifeq ($(ACCESSKIT_SHIM_PROFILE),release)
+ACCESSKIT_SHIM_CARGO_FLAGS += --release
+endif
 
 ifndef NOGDK
   ifdef GDK2
@@ -195,7 +204,7 @@ libSwell$(DLL_EXT): $(ACCESSKIT_SHIM_LIB)
 test: $(ACCESSKIT_SHIM_LIB)
 
 $(ACCESSKIT_SHIM_LIB): $(ACCESSKIT_SHIM_MANIFEST) $(ACCESSKIT_SHIM_RS)
-	cargo build --release --manifest-path $(abspath $(ACCESSKIT_SHIM_MANIFEST))
+	cargo build $(ACCESSKIT_SHIM_CARGO_FLAGS) --manifest-path $(abspath $(ACCESSKIT_SHIM_MANIFEST))
 endif
 
 libSwell$(DLL_EXT): $(OBJS)

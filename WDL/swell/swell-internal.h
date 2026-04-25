@@ -1030,11 +1030,78 @@ int swell_accesskit_get_active_menu_count(void);
 HWND swell_accesskit_get_active_menu_window(int index);
 HMENU swell_accesskit_get_active_menu(int index);
 HWND swell_accesskit_get_active_menu_owner(void);
+uint64_t swell_accesskit_get_active_menu_serial(HWND menu_hwnd);
+HWND swell_accesskit_get_active_menubar_window(void);
+int swell_accesskit_get_active_menubar_index(void);
+bool swell_accesskit_focus_menubar_item(HWND hwnd, int index);
 void swell_accesskit_select_menu_item(HWND menu_hwnd, int index);
 void swell_accesskit_activate_menu_item(HWND menu_hwnd, int index);
 HWND SWELL_GetFocusedChild(HWND h);
 bool swell_edit_control_get_accessibility_text_state(HWND hwnd, int *cursor_pos, int *sel_start, int *sel_end, int *scroll_x);
 bool swell_edit_control_set_accessibility_selection(HWND hwnd, int anchor, int focus);
+struct swell_accesskit_collection_range
+{
+  int first;
+  int count;
+  int total;
+};
+struct swell_accesskit_listview_info
+{
+  bool valid;
+  bool is_listbox;
+  bool is_report;
+  bool is_owner_data;
+  bool is_multiselect;
+  int item_count;
+  int column_count;
+  int focused_index;
+  int selected_index;
+  int row_height;
+  int header_height;
+  int scroll_x;
+  int scroll_y;
+  int scroll_x_max;
+  int scroll_y_max;
+};
+struct swell_accesskit_treeview_info
+{
+  bool valid;
+  int visible_count;
+  int row_height;
+  int scroll_y;
+  int scroll_y_max;
+  HTREEITEM selected_item;
+};
+struct swell_accesskit_treeitem_info
+{
+  bool valid;
+  const char *label;
+  bool selected;
+  bool has_children;
+  bool expanded;
+  int level;
+  int position_in_set;
+  int size_of_set;
+  RECT rect;
+};
+struct swell_accesskit_tab_info
+{
+  bool valid;
+  int count;
+  int selected_index;
+};
+bool swell_accesskit_get_listview_info(HWND hwnd, swell_accesskit_listview_info *info);
+bool swell_accesskit_get_listview_export_range(HWND hwnd, swell_accesskit_collection_range *range);
+bool swell_accesskit_get_listview_item_identity(HWND hwnd, int index, uintptr_t *identity);
+bool swell_accesskit_get_listview_item_text(HWND hwnd, int index, int column, char *buf, int buflen);
+bool swell_accesskit_get_listview_column_text(HWND hwnd, int column, char *buf, int buflen);
+bool swell_accesskit_get_listview_item_rect(HWND hwnd, int index, int column, RECT *rect);
+bool swell_accesskit_get_treeview_info(HWND hwnd, swell_accesskit_treeview_info *info);
+HTREEITEM swell_accesskit_get_treeview_visible_item(HWND hwnd, int visible_index);
+bool swell_accesskit_get_treeview_item_info(HWND hwnd, HTREEITEM item, swell_accesskit_treeitem_info *info);
+bool swell_accesskit_get_tab_info(HWND hwnd, swell_accesskit_tab_info *info);
+bool swell_accesskit_get_tab_text(HWND hwnd, int index, char *buf, int buflen);
+bool swell_accesskit_get_tab_rect(HWND hwnd, int index, RECT *rect);
 HWND swell_window_wants_all_input(); // window with an active drag of menubar will have this set, to route all mouse events to nonclient area of window
 int swell_delegate_menu_message(HWND src, LPARAM lParam, int msg, bool screencoords); // menubar/menus delegate to submenus during drag.
 

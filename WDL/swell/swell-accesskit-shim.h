@@ -32,6 +32,18 @@ enum
   SWELL_ACCESSKIT_ROLE_MENU_LIST_POPUP = 19,
   SWELL_ACCESSKIT_ROLE_MENU_LIST_OPTION = 20,
   SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX = 21,
+  SWELL_ACCESSKIT_ROLE_LIST_BOX = 22,
+  SWELL_ACCESSKIT_ROLE_LIST_BOX_OPTION = 23,
+  SWELL_ACCESSKIT_ROLE_LIST = 24,
+  SWELL_ACCESSKIT_ROLE_LIST_ITEM = 25,
+  SWELL_ACCESSKIT_ROLE_GRID = 26,
+  SWELL_ACCESSKIT_ROLE_ROW = 27,
+  SWELL_ACCESSKIT_ROLE_GRID_CELL = 28,
+  SWELL_ACCESSKIT_ROLE_COLUMN_HEADER = 29,
+  SWELL_ACCESSKIT_ROLE_TREE = 30,
+  SWELL_ACCESSKIT_ROLE_TREE_ITEM = 31,
+  SWELL_ACCESSKIT_ROLE_TAB_LIST = 32,
+  SWELL_ACCESSKIT_ROLE_TAB = 33,
 };
 
 enum
@@ -42,6 +54,9 @@ enum
   SWELL_ACCESSKIT_ACTION_INCREMENT_MASK = 1u << 3,
   SWELL_ACCESSKIT_ACTION_DECREMENT_MASK = 1u << 4,
   SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION_MASK = 1u << 5,
+  SWELL_ACCESSKIT_ACTION_EXPAND_MASK = 1u << 6,
+  SWELL_ACCESSKIT_ACTION_COLLAPSE_MASK = 1u << 7,
+  SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW_MASK = 1u << 8,
 };
 
 enum
@@ -56,6 +71,7 @@ enum
   SWELL_ACCESSKIT_NODE_FLAG_EXPANDED = 1u << 7,
   SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED = 1u << 8,
   SWELL_ACCESSKIT_NODE_FLAG_SELECTED = 1u << 9,
+  SWELL_ACCESSKIT_NODE_FLAG_MULTISELECTABLE = 1u << 10,
 };
 
 enum
@@ -89,6 +105,9 @@ enum
   SWELL_ACCESSKIT_ACTION_INCREMENT = 4,
   SWELL_ACCESSKIT_ACTION_DECREMENT = 5,
   SWELL_ACCESSKIT_ACTION_SET_TEXT_SELECTION = 6,
+  SWELL_ACCESSKIT_ACTION_EXPAND = 7,
+  SWELL_ACCESSKIT_ACTION_COLLAPSE = 8,
+  SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW = 9,
 };
 
 enum
@@ -145,6 +164,22 @@ typedef struct swell_accesskit_node
   size_t size_of_set;
   swell_accesskit_string_ref access_key;
   swell_accesskit_string_ref keyboard_shortcut;
+  size_t labelled_by_count;
+  const uint64_t *labelled_by;
+  size_t row_count;
+  size_t column_count;
+  size_t row_index;
+  size_t column_index;
+  size_t level;
+  double scroll_x;
+  double scroll_x_min;
+  double scroll_x_max;
+  double scroll_y;
+  double scroll_y_min;
+  double scroll_y_max;
+  uint32_t child_action_mask;
+  uint64_t text_selection_anchor_node;
+  uint64_t text_selection_focus_node;
 } swell_accesskit_node;
 
 typedef struct swell_accesskit_tree_snapshot
@@ -164,6 +199,8 @@ typedef struct swell_accesskit_action_request
   double numeric_value;
   size_t text_selection_anchor;
   size_t text_selection_focus;
+  uint64_t text_selection_anchor_node;
+  uint64_t text_selection_focus_node;
 } swell_accesskit_action_request;
 
 struct swell_accesskit_host;

@@ -33,6 +33,18 @@ const ROLE_MENU_ITEM_RADIO: u32 = 18;
 const ROLE_MENU_LIST_POPUP: u32 = 19;
 const ROLE_MENU_LIST_OPTION: u32 = 20;
 const ROLE_EDITABLE_COMBO_BOX: u32 = 21;
+const ROLE_LIST_BOX: u32 = 22;
+const ROLE_LIST_BOX_OPTION: u32 = 23;
+const ROLE_LIST: u32 = 24;
+const ROLE_LIST_ITEM: u32 = 25;
+const ROLE_GRID: u32 = 26;
+const ROLE_ROW: u32 = 27;
+const ROLE_GRID_CELL: u32 = 28;
+const ROLE_COLUMN_HEADER: u32 = 29;
+const ROLE_TREE: u32 = 30;
+const ROLE_TREE_ITEM: u32 = 31;
+const ROLE_TAB_LIST: u32 = 32;
+const ROLE_TAB: u32 = 33;
 
 const ACTION_FOCUS_MASK: u32 = 1u32 << 0;
 const ACTION_CLICK_MASK: u32 = 1u32 << 1;
@@ -40,6 +52,9 @@ const ACTION_SET_VALUE_MASK: u32 = 1u32 << 2;
 const ACTION_INCREMENT_MASK: u32 = 1u32 << 3;
 const ACTION_DECREMENT_MASK: u32 = 1u32 << 4;
 const ACTION_SET_TEXT_SELECTION_MASK: u32 = 1u32 << 5;
+const ACTION_EXPAND_MASK: u32 = 1u32 << 6;
+const ACTION_COLLAPSE_MASK: u32 = 1u32 << 7;
+const ACTION_SCROLL_INTO_VIEW_MASK: u32 = 1u32 << 8;
 
 const NODE_FLAG_DISABLED: u32 = 1u32 << 0;
 const NODE_FLAG_READ_ONLY: u32 = 1u32 << 1;
@@ -51,6 +66,7 @@ const NODE_FLAG_HAS_EXPANDED: u32 = 1u32 << 6;
 const NODE_FLAG_EXPANDED: u32 = 1u32 << 7;
 const NODE_FLAG_HAS_SELECTED: u32 = 1u32 << 8;
 const NODE_FLAG_SELECTED: u32 = 1u32 << 9;
+const NODE_FLAG_MULTISELECTABLE: u32 = 1u32 << 10;
 
 const HAS_POPUP_MENU: u32 = 1;
 const HAS_POPUP_LISTBOX: u32 = 2;
@@ -69,6 +85,9 @@ const ACTION_SET_VALUE: u32 = 3;
 const ACTION_INCREMENT: u32 = 4;
 const ACTION_DECREMENT: u32 = 5;
 const ACTION_SET_TEXT_SELECTION: u32 = 6;
+const ACTION_EXPAND: u32 = 7;
+const ACTION_COLLAPSE: u32 = 8;
+const ACTION_SCROLL_INTO_VIEW: u32 = 9;
 
 const ACTION_DATA_NONE: u32 = 0;
 const ACTION_DATA_STRING: u32 = 1;
@@ -127,6 +146,22 @@ pub struct swell_accesskit_node {
     size_of_set: usize,
     access_key: swell_accesskit_string_ref,
     keyboard_shortcut: swell_accesskit_string_ref,
+    labelled_by_count: usize,
+    labelled_by: *const u64,
+    row_count: usize,
+    column_count: usize,
+    row_index: usize,
+    column_index: usize,
+    level: usize,
+    scroll_x: f64,
+    scroll_x_min: f64,
+    scroll_x_max: f64,
+    scroll_y: f64,
+    scroll_y_min: f64,
+    scroll_y_max: f64,
+    child_action_mask: u32,
+    text_selection_anchor_node: u64,
+    text_selection_focus_node: u64,
 }
 
 #[repr(C)]
@@ -146,6 +181,8 @@ pub struct swell_accesskit_action_request {
     numeric_value: f64,
     text_selection_anchor: usize,
     text_selection_focus: usize,
+    text_selection_anchor_node: u64,
+    text_selection_focus_node: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +194,8 @@ struct QueuedAction {
     numeric_value: f64,
     text_selection_anchor: usize,
     text_selection_focus: usize,
+    text_selection_anchor_node: u64,
+    text_selection_focus_node: u64,
 }
 
 #[derive(Default)]
@@ -211,6 +250,8 @@ impl QueuedAction {
             numeric_value: 0.0,
             text_selection_anchor: 0,
             text_selection_focus: 0,
+            text_selection_anchor_node: 0,
+            text_selection_focus_node: 0,
         };
 
         if let Some(data) = request.data {
@@ -227,6 +268,8 @@ impl QueuedAction {
                     queued.data_kind = ACTION_DATA_TEXT_SELECTION;
                     queued.text_selection_anchor = selection.anchor.character_index;
                     queued.text_selection_focus = selection.focus.character_index;
+                    queued.text_selection_anchor_node = selection.anchor.node.0;
+                    queued.text_selection_focus_node = selection.focus.node.0;
                 }
                 _ => {}
             }
@@ -259,6 +302,18 @@ fn map_role(value: u32) -> Role {
         ROLE_MENU_LIST_POPUP => Role::MenuListPopup,
         ROLE_MENU_LIST_OPTION => Role::MenuListOption,
         ROLE_EDITABLE_COMBO_BOX => Role::EditableComboBox,
+        ROLE_LIST_BOX => Role::ListBox,
+        ROLE_LIST_BOX_OPTION => Role::ListBoxOption,
+        ROLE_LIST => Role::List,
+        ROLE_LIST_ITEM => Role::ListItem,
+        ROLE_GRID => Role::Grid,
+        ROLE_ROW => Role::Row,
+        ROLE_GRID_CELL => Role::GridCell,
+        ROLE_COLUMN_HEADER => Role::ColumnHeader,
+        ROLE_TREE => Role::Tree,
+        ROLE_TREE_ITEM => Role::TreeItem,
+        ROLE_TAB_LIST => Role::TabList,
+        ROLE_TAB => Role::Tab,
         _ => Role::Unknown,
     }
 }
@@ -271,6 +326,9 @@ fn map_action(value: Action) -> u32 {
         Action::Increment => ACTION_INCREMENT,
         Action::Decrement => ACTION_DECREMENT,
         Action::SetTextSelection => ACTION_SET_TEXT_SELECTION,
+        Action::Expand => ACTION_EXPAND,
+        Action::Collapse => ACTION_COLLAPSE,
+        Action::ScrollIntoView => ACTION_SCROLL_INTO_VIEW,
         _ => ACTION_NONE,
     }
 }
@@ -293,6 +351,15 @@ fn apply_action_mask(node: &mut Node, action_mask: u32) {
     }
     if (action_mask & ACTION_SET_TEXT_SELECTION_MASK) != 0 {
         node.add_action(Action::SetTextSelection);
+    }
+    if (action_mask & ACTION_EXPAND_MASK) != 0 {
+        node.add_action(Action::Expand);
+    }
+    if (action_mask & ACTION_COLLAPSE_MASK) != 0 {
+        node.add_action(Action::Collapse);
+    }
+    if (action_mask & ACTION_SCROLL_INTO_VIEW_MASK) != 0 {
+        node.add_action(Action::ScrollIntoView);
     }
 }
 
@@ -322,6 +389,17 @@ unsafe fn children_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<NodeId>> {
     }
     let children = slice::from_raw_parts(raw.children, raw.child_count);
     Some(children.iter().copied().map(NodeId).collect())
+}
+
+unsafe fn labelled_by_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<NodeId>> {
+    if raw.labelled_by_count == 0 {
+        return Some(Vec::new());
+    }
+    if raw.labelled_by.is_null() {
+        return None;
+    }
+    let labelled_by = slice::from_raw_parts(raw.labelled_by, raw.labelled_by_count);
+    Some(labelled_by.iter().copied().map(NodeId).collect())
 }
 
 unsafe fn character_lengths_from_ffi(raw: &swell_accesskit_node) -> Option<Vec<u8>> {
@@ -379,6 +457,10 @@ unsafe fn build_tree_update(
         if let Some(keyboard_shortcut) = string_from_ffi(&raw.keyboard_shortcut) {
             node.set_keyboard_shortcut(keyboard_shortcut);
         }
+        let labelled_by = labelled_by_from_ffi(raw)?;
+        if !labelled_by.is_empty() {
+            node.set_labelled_by(labelled_by);
+        }
         if (raw.flags & NODE_FLAG_DISABLED) != 0 {
             node.set_disabled();
         }
@@ -390,6 +472,9 @@ unsafe fn build_tree_update(
         }
         if (raw.flags & NODE_FLAG_HAS_SELECTED) != 0 {
             node.set_selected((raw.flags & NODE_FLAG_SELECTED) != 0);
+        }
+        if (raw.flags & NODE_FLAG_MULTISELECTABLE) != 0 {
+            node.set_multiselectable();
         }
         match raw.has_popup {
             HAS_POPUP_MENU => node.set_has_popup(HasPopup::Menu),
@@ -404,6 +489,31 @@ unsafe fn build_tree_update(
         }
         if raw.size_of_set != 0 {
             node.set_size_of_set(raw.size_of_set);
+        }
+        if raw.row_count != 0 {
+            node.set_row_count(raw.row_count);
+        }
+        if raw.column_count != 0 {
+            node.set_column_count(raw.column_count);
+        }
+        if raw.row_index != 0 {
+            node.set_row_index(raw.row_index);
+        }
+        if raw.column_index != 0 {
+            node.set_column_index(raw.column_index);
+        }
+        if raw.level != 0 {
+            node.set_level(raw.level);
+        }
+        if raw.scroll_x_max > raw.scroll_x_min {
+            node.set_scroll_x(raw.scroll_x);
+            node.set_scroll_x_min(raw.scroll_x_min);
+            node.set_scroll_x_max(raw.scroll_x_max);
+        }
+        if raw.scroll_y_max > raw.scroll_y_min {
+            node.set_scroll_y(raw.scroll_y);
+            node.set_scroll_y_min(raw.scroll_y_min);
+            node.set_scroll_y_max(raw.scroll_y_max);
         }
         match raw.toggled {
             TOGGLED_FALSE => node.set_toggled(Toggled::False),
@@ -429,13 +539,23 @@ unsafe fn build_tree_update(
             node.set_numeric_value_step(raw.numeric_value_step);
         }
         if raw.text_selection_node != 0 {
+            let anchor_node = if raw.text_selection_anchor_node != 0 {
+                raw.text_selection_anchor_node
+            } else {
+                raw.text_selection_node
+            };
+            let focus_node = if raw.text_selection_focus_node != 0 {
+                raw.text_selection_focus_node
+            } else {
+                raw.text_selection_node
+            };
             node.set_text_selection(TextSelection {
                 anchor: TextPosition {
-                    node: NodeId(raw.text_selection_node),
+                    node: NodeId(anchor_node),
                     character_index: raw.text_selection_anchor,
                 },
                 focus: TextPosition {
-                    node: NodeId(raw.text_selection_node),
+                    node: NodeId(focus_node),
                     character_index: raw.text_selection_focus,
                 },
             });
@@ -447,6 +567,9 @@ unsafe fn build_tree_update(
             node.set_text_direction(TextDirection::LeftToRight);
         }
         apply_action_mask(&mut node, raw.action_mask);
+        if (raw.child_action_mask & ACTION_SCROLL_INTO_VIEW_MASK) != 0 {
+            node.add_child_action(Action::ScrollIntoView);
+        }
 
         let child_ids = children_from_ffi(raw)?;
         if !child_ids.is_empty() {
@@ -669,6 +792,8 @@ pub extern "C" fn swell_accesskit_host_pop_action(
         (*out_action).numeric_value = action.numeric_value;
         (*out_action).text_selection_anchor = action.text_selection_anchor;
         (*out_action).text_selection_focus = action.text_selection_focus;
+        (*out_action).text_selection_anchor_node = action.text_selection_anchor_node;
+        (*out_action).text_selection_focus_node = action.text_selection_focus_node;
         (*out_action).string_value = action
             .string_value
             .as_deref()
@@ -746,5 +871,146 @@ pub extern "C" fn swell_accesskit_notify_keyboard_event(
         if debug_enabled() {
             eprintln!("SWELL AccessKit AT-SPI key event notify failed: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_string() -> swell_accesskit_string_ref {
+        swell_accesskit_string_ref {
+            ptr: ptr::null(),
+            len: 0,
+        }
+    }
+
+    fn empty_rect() -> swell_accesskit_rect {
+        swell_accesskit_rect {
+            x0: 0.0,
+            y0: 0.0,
+            x1: 10.0,
+            y1: 10.0,
+        }
+    }
+
+    fn empty_node(id: u64, role: u32) -> swell_accesskit_node {
+        swell_accesskit_node {
+            id,
+            role,
+            bounds: empty_rect(),
+            flags: 0,
+            action_mask: 0,
+            toggled: 0,
+            orientation: 0,
+            numeric_value: 0.0,
+            min_numeric_value: 0.0,
+            max_numeric_value: 0.0,
+            numeric_value_step: 0.0,
+            child_count: 0,
+            children: ptr::null(),
+            text_selection_node: 0,
+            text_selection_anchor: 0,
+            text_selection_focus: 0,
+            character_length_count: 0,
+            character_lengths: ptr::null(),
+            character_position_count: 0,
+            character_positions: ptr::null(),
+            character_width_count: 0,
+            character_widths: ptr::null(),
+            label: empty_string(),
+            value: empty_string(),
+            has_popup: 0,
+            active_descendant: 0,
+            position_in_set: 0,
+            size_of_set: 0,
+            access_key: empty_string(),
+            keyboard_shortcut: empty_string(),
+            labelled_by_count: 0,
+            labelled_by: ptr::null(),
+            row_count: 0,
+            column_count: 0,
+            row_index: 0,
+            column_index: 0,
+            level: 0,
+            scroll_x: 0.0,
+            scroll_x_min: 0.0,
+            scroll_x_max: 0.0,
+            scroll_y: 0.0,
+            scroll_y_min: 0.0,
+            scroll_y_max: 0.0,
+            child_action_mask: 0,
+            text_selection_anchor_node: 0,
+            text_selection_focus_node: 0,
+        }
+    }
+
+    #[test]
+    fn maps_collection_and_tab_roles() {
+        assert_eq!(map_role(ROLE_LIST_BOX), Role::ListBox);
+        assert_eq!(map_role(ROLE_LIST_BOX_OPTION), Role::ListBoxOption);
+        assert_eq!(map_role(ROLE_GRID), Role::Grid);
+        assert_eq!(map_role(ROLE_GRID_CELL), Role::GridCell);
+        assert_eq!(map_role(ROLE_TREE), Role::Tree);
+        assert_eq!(map_role(ROLE_TREE_ITEM), Role::TreeItem);
+        assert_eq!(map_role(ROLE_TAB_LIST), Role::TabList);
+        assert_eq!(map_role(ROLE_TAB), Role::Tab);
+    }
+
+    #[test]
+    fn maps_new_actions() {
+        let mut node = Node::new(Role::Unknown);
+        apply_action_mask(
+            &mut node,
+            ACTION_EXPAND_MASK | ACTION_COLLAPSE_MASK | ACTION_SCROLL_INTO_VIEW_MASK,
+        );
+        assert!(node.supports_action(Action::Expand));
+        assert!(node.supports_action(Action::Collapse));
+        assert!(node.supports_action(Action::ScrollIntoView));
+    }
+
+    #[test]
+    fn maps_metadata_and_distinct_text_selection_nodes() {
+        let label_refs = [2_u64];
+        let children = [3_u64];
+        let mut root = empty_node(1, ROLE_GRID);
+        root.child_count = children.len();
+        root.children = children.as_ptr();
+        root.labelled_by_count = label_refs.len();
+        root.labelled_by = label_refs.as_ptr();
+        root.flags = NODE_FLAG_MULTISELECTABLE;
+        root.row_count = 7;
+        root.column_count = 2;
+        root.active_descendant = 3;
+        root.child_action_mask = ACTION_SCROLL_INTO_VIEW_MASK;
+
+        let label = empty_node(2, ROLE_LABEL);
+        let mut text = empty_node(3, ROLE_MULTILINE_TEXT_INPUT);
+        text.text_selection_node = 4;
+        text.text_selection_anchor_node = 4;
+        text.text_selection_focus_node = 5;
+        text.text_selection_anchor = 1;
+        text.text_selection_focus = 2;
+        let run_a = empty_node(4, ROLE_TEXT_RUN);
+        let run_b = empty_node(5, ROLE_TEXT_RUN);
+        let nodes = [root, label, text, run_a, run_b];
+        let snapshot = swell_accesskit_tree_snapshot {
+            root_id: 1,
+            focus_id: 3,
+            node_count: nodes.len(),
+            nodes: nodes.as_ptr(),
+        };
+        let update = unsafe { build_tree_update(TreeId::ROOT, &snapshot) }.unwrap();
+        let root_node = &update.nodes[0].1;
+        assert_eq!(root_node.labelled_by(), &[NodeId(2)]);
+        assert!(root_node.is_multiselectable());
+        assert_eq!(root_node.row_count(), Some(7));
+        assert_eq!(root_node.column_count(), Some(2));
+        assert_eq!(root_node.active_descendant(), Some(NodeId(3)));
+        assert!(root_node.child_supports_action(Action::ScrollIntoView));
+
+        let text_selection = update.nodes[2].1.text_selection().unwrap();
+        assert_eq!(text_selection.anchor.node, NodeId(4));
+        assert_eq!(text_selection.focus.node, NodeId(5));
     }
 }

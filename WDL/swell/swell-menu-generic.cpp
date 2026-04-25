@@ -355,6 +355,13 @@ static int m_trackingMouseFlag;
 static int m_trackingFlags,m_trackingRet;
 static HWND m_trackingPar;
 static WDL_PtrList<HWND__> m_trackingMenus; // each HWND as userdata = HMENU
+static uint64_t m_trackingMenuSerial;
+
+static uint64_t swell_accesskit_next_menu_serial()
+{
+  if (++m_trackingMenuSerial == 0) ++m_trackingMenuSerial;
+  return m_trackingMenuSerial;
+}
 
 static void swell_accesskit_active_menu_changed(HWND menu_hwnd)
 {
@@ -497,6 +504,12 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         RECT vp, tr={m_trackingPt.x,m_trackingPt.y, m_trackingPt.x+wid+SWELL_UI_SCALE(4),m_trackingPt.y+ht+top_margin * 2};
         SWELL_GetViewPort(&vp,&ref,true);
         vp.bottom -= 8;
+        if (vp.right <= vp.left || vp.bottom <= vp.top)
+        {
+          vp = tr;
+          vp.right = wdl_max(vp.right, vp.left + SWELL_UI_SCALE(16));
+          vp.bottom = wdl_max(vp.bottom, vp.top + SWELL_UI_SCALE(16));
+        }
  
         if (g_trackpopup_yroot.bottom > g_trackpopup_yroot.top &&
             g_trackpopup_yroot.bottom > vp.top && 
@@ -527,6 +540,8 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         if (tr.top < vp.top) { tr.bottom += vp.top-tr.top; tr.top=vp.top; }
         if (tr.bottom > vp.bottom) tr.bottom=vp.bottom;
         if (tr.right > vp.right) tr.right=vp.right;
+        if (tr.right <= tr.left) tr.right = tr.left + 1;
+        if (tr.bottom <= tr.top) tr.bottom = tr.top + 1;
 
         SetWindowPos(hwnd,NULL,tr.left,tr.top,tr.right-tr.left,tr.bottom-tr.top,SWP_NOZORDER);
 
@@ -1075,6 +1090,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         int a = m_trackingMenus.Find(hwnd);
         m_trackingMenus.Delete(a);
         if (m_trackingMenus.Get(a)) DestroyWindow(m_trackingMenus.Get(a));
+        RemoveProp(hwnd,"SWELL_AccessKitMenuSerial");
         RemoveProp(hwnd,"SWELL_MenuOwner");
         swell_accesskit_active_menu_changed(hwnd);
       }
@@ -1181,6 +1197,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             else
             {
               hh = new HWND__(NULL,0,NULL,"menu",false,submenuWndProc,NULL, hwnd);
+              SetProp(hh,"SWELL_AccessKitMenuSerial",(HANDLE)(uintptr_t)swell_accesskit_next_menu_serial());
               SetProp(hh,"SWELL_MenuOwner",GetProp(hwnd,"SWELL_MenuOwner"));
             }
 
@@ -1313,6 +1330,11 @@ HWND swell_accesskit_get_active_menu_owner(void)
   return m_trackingPar;
 }
 
+uint64_t swell_accesskit_get_active_menu_serial(HWND menu_hwnd)
+{
+  return (uint64_t)(uintptr_t)(menu_hwnd ? GetProp(menu_hwnd, "SWELL_AccessKitMenuSerial") : NULL);
+}
+
 void swell_accesskit_select_menu_item(HWND menu_hwnd, int index)
 {
   HMENU__ *menu = (HMENU__*)swell_accesskit_get_active_menu(m_trackingMenus.Find(menu_hwnd));
@@ -1367,6 +1389,7 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
   if (!resvd || resvd == 0xbeee) swell_menu_ignore_mousemove_from = GetTickCount();
 
   HWND hh=new HWND__(NULL,0,NULL,"menu",false,submenuWndProc,NULL, hwnd);
+  SetProp(hh,"SWELL_AccessKitMenuSerial",(HANDLE)(uintptr_t)swell_accesskit_next_menu_serial());
 
   submenuWndProc(hh,WM_CREATE,0,(LPARAM)hMenu);
 
