@@ -6,7 +6,8 @@
 - The in-repo Rust shim lives at `WDL/swell/rust/accesskit_shim` and builds as a `staticlib`.
 - The sibling AccessKit dependency is still expected at `../accesskit`.
 - Phase 2 text semantics and AT-SPI keyboard event forwarding have been implemented.
-- Menu and combo-box AccessKit modeling has been implemented in the working tree.
+- Menu, combo-box, list/listview, tree, tab, and label-relation AccessKit modeling has been committed.
+- SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
 ## Reproducibility
@@ -14,6 +15,9 @@
 - WDL baseline commit: `21c7a3f5` (`swell: add linux AccessKit PoC with Rust shim`)
 - Text/key event implementation commit: `02b3c1fb` (`various changes`)
 - Ignore/debug tooling commit: `9d7c1974` (`added .gitignore and debugging tool for at-spi events`)
+- Menu/combo coverage commit: `12234282` (`add AccessKit menu and combo coverage`)
+- Menu, label, list/tree/tab, and debug-build improvements commit: `4ff08a4e` (`Improve SWELL AccessKit menus and labels`)
+- Pre-dispatch menu-bar key handling commit: `7d312add` (`Swallow menu bar navigation keys in SWELL`)
 - Sibling dependency branch: `../accesskit` branch `swell-unix-activation-fix`
 - Sibling dependency commit: `f4778b696747628ea213d10f57c078c23ca0ae90`
 
@@ -39,6 +43,7 @@
   - `MENU_LIST_POPUP`, `MENU_LIST_OPTION`, `EDITABLE_COMBO_BOX`
   - `expanded`, `selected`, `has_popup`, `active_descendant`
   - `position_in_set`, `size_of_set`, `access_key`, `keyboard_shortcut`
+  - `labelled_by`, collection metadata, scroll metadata, and hierarchy metadata for list/tree/grid/tab nodes
 
 ## Text Semantics
 
@@ -79,6 +84,17 @@
 - Dropdown-list combos keep value semantics on the combo node and expose option selection through the popup tree.
 - Editable combos use `EDITABLE_COMBO_BOX`, keep value semantics, and expose a synthetic `TEXT_RUN` child with text selection geometry.
 - Synthetic AccessKit actions can focus/select popup rows and activate popup/menu items through existing SWELL menu activation paths.
+- Popup menu node IDs include a per-popup serial so reopening the same SWELL menu creates a distinct accessibility subtree.
+- Popup menus derive a label from the owning menu-bar or submenu item where possible.
+- F10 focuses the menu bar without opening a popup; Left/Right move among top-level menu headings; Down/Enter/Space open or activate the focused heading; Escape exits menu-bar focus.
+- GDK pre-dispatch handling swallows those menu-bar navigation keys before `SWELLAppMain(SWELLAPP_PROCESSMESSAGE)` so the host application does not receive them.
+
+## Labels And Dialog Relations
+
+- SWELL now exports AccessKit `labelled_by` relations for common labelled controls.
+- The preferred label source is the preceding visible text `Static` sibling in dialog child order, matching the convention used by Win32 dialog resources and screen readers.
+- Geometry-based label matching remains as a constrained fallback and only considers preceding static-text siblings from the same parent.
+- List/tree/grid/tab controls are no longer labelled through broad nearby-label heuristics, avoiding incorrect labels such as a later combo label being attached to a dialog tree.
 
 ## Control Coverage
 
@@ -100,17 +116,33 @@
 - Popup menu item -> synthetic `MENU_ITEM`, `MENU_ITEM_CHECK_BOX`, or `MENU_ITEM_RADIO`
 - Combo dropdown popup -> synthetic `MENU_LIST_POPUP`
 - Combo dropdown option -> synthetic `MENU_LIST_OPTION`
+- List box -> `LIST_BOX`
+- List box option -> synthetic `LIST_BOX_OPTION`
+- List view -> `LIST`
+- List view item -> synthetic `LIST_ITEM`
+- Report list view -> `GRID`
+- Report row -> synthetic `ROW`
+- Report cell -> synthetic `GRID_CELL`
+- Report column header -> synthetic `COLUMN_HEADER`
+- Tree view -> `TREE`
+- Tree item -> synthetic `TREE_ITEM`
+- Tab control -> `TAB_LIST`
+- Tab item -> synthetic `TAB`
 
 ## Deferred Work
 
+- Broader access-key exposure beyond menu items:
+  - Buttons, checkboxes, radio buttons, group boxes, and static-label/control pairs can derive access keys from `&` mnemonics in SWELL titles or associated static labels.
+  - AccessKit already has `access_key` plumbing through the C ABI and Rust shim, so this should mostly be C++ extraction/association work.
+  - The same pass should verify whether Alt+mnemonic dispatch is complete for dialog controls on Linux.
 - Multiline edit text geometry and line navigation semantics.
 - Rich text structure.
 - Incremental AccessKit tree diffs.
 - Slider arrow-key behavior as a separate SWELL widget/keyboard task.
 - AT-SPI cache interface support, if the recurring `/org/a11y/atspi/cache` warning proves behaviorally significant.
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
-- Manual AT-SPI/Orca verification of menu-bar keyboard traversal, submenu traversal, and combo dropdown announcement.
-- Generic listbox/listview/tree coverage outside combo popup menus.
+- Manual AT-SPI/Orca verification of menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
+- Multiselect list/grid selection details and large owner-data collection performance tuning.
 
 ## Validation
 
@@ -155,6 +187,9 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - Sample app build passed after adding menu and combo coverage.
 - `cargo fmt --check` passed for the Rust shim.
 - `git diff --check` passed; Git warned that `WDL/swell/sample_project/res.rc` will be CRLF-normalized when Git touches it.
+- `make -C WDL/swell DEBUG=1` passed after menu, label, list/tree/tab, and pre-dispatch key handling changes.
+- `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml` passed after the same changes.
+- REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 
 ## Sample App Coverage
 
