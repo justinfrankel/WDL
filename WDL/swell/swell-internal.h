@@ -1034,6 +1034,7 @@ uint64_t swell_accesskit_get_active_menu_serial(HWND menu_hwnd);
 HWND swell_accesskit_get_active_menubar_window(void);
 int swell_accesskit_get_active_menubar_index(void);
 bool swell_accesskit_focus_menubar_item(HWND hwnd, int index);
+bool swell_handle_menubar_key(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 void swell_accesskit_select_menu_item(HWND menu_hwnd, int index);
 void swell_accesskit_activate_menu_item(HWND menu_hwnd, int index);
 HWND SWELL_GetFocusedChild(HWND h);

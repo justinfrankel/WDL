@@ -7580,6 +7580,7 @@ static int menuBarHitTest(HWND hwnd, int mousex, int mousey, RECT *rOut, int for
 static RECT g_menubar_lastrect;
 static HWND g_menubar_active;
 static bool g_menubar_active_drag;
+static void runMenuBar(HWND hwnd, HMENU__ *menu, int x, const RECT *use_r, int flag);
 
 static int menuBarFindNavigableItem(HWND hwnd, int start, int dir, RECT *rOut)
 {
@@ -7707,6 +7708,67 @@ bool swell_accesskit_focus_menubar_item(HWND hwnd, int index)
   InvalidateRect(hwnd,&mbr,FALSE);
   swell_accesskit_window_changed(hwnd);
   return true;
+}
+
+bool swell_handle_menubar_key(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  if (msg != WM_KEYDOWN && msg != WM_KEYUP) return false;
+  if (!(lParam & FVIRTKEY)) return false;
+
+  HWND root = hwnd;
+  while (root && root->m_parent) root = root->m_parent;
+  if (g_menubar_active && !g_menubar_active_drag) root = g_menubar_active;
+  if (!root || !root->m_menu) return false;
+
+  const bool keydown = msg == WM_KEYDOWN;
+  const bool no_mods = !(lParam & (FSHIFT|FCONTROL|FALT));
+  if (wParam == VK_F10 && no_mods)
+  {
+    if (keydown)
+    {
+      if (g_menubar_active == root && !g_menubar_active_drag)
+        menuBarDeactivate(root);
+      else
+        menuBarActivate(root,0);
+    }
+    return true;
+  }
+
+  if (g_menubar_active != root || g_menubar_active_drag) return false;
+
+  HMENU__ *menu = (HMENU__*)root->m_menu;
+  switch (wParam)
+  {
+    case VK_LEFT:
+      if (keydown) menuBarNavigateFocused(root,-1);
+    return true;
+    case VK_RIGHT:
+      if (keydown) menuBarNavigateFocused(root,1);
+    return true;
+    case VK_ESCAPE:
+      if (keydown) menuBarDeactivate(root);
+    return true;
+    case VK_DOWN:
+    case VK_RETURN:
+    case VK_SPACE:
+      if (keydown)
+      {
+        MENUITEMINFO *inf = menu->items.Get(menu->sel_vis);
+        if (inf && inf->hSubMenu)
+        {
+          RECT r = g_menubar_lastrect;
+          g_menubar_active_drag = true;
+          runMenuBar(root,menu,menu->sel_vis,&r,0xbeee);
+        }
+        else if (inf && inf->wID)
+        {
+          menuBarDeactivate(root);
+          SendMessage(root,WM_COMMAND,inf->wID,0);
+        }
+      }
+    return true;
+  }
+  return false;
 }
 
 HWND swell_window_wants_all_input()
@@ -7960,52 +8022,7 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_KEYUP: 
         if (hwnd->m_parent) return SendMessage(hwnd->m_parent,msg,wParam,lParam);
 
-        if (msg == WM_KEYDOWN && hwnd->m_menu && (lParam & FVIRTKEY))
-        {
-          const bool no_mods = !(lParam & (FSHIFT|FCONTROL|FALT));
-          if (wParam == VK_F10 && no_mods)
-          {
-            if (g_menubar_active == hwnd && !g_menubar_active_drag)
-              menuBarDeactivate(hwnd);
-            else
-              menuBarActivate(hwnd,0);
-            return 1;
-          }
-          if (g_menubar_active == hwnd && !g_menubar_active_drag)
-          {
-            HMENU__ *menu = (HMENU__*)hwnd->m_menu;
-            switch (wParam)
-            {
-              case VK_LEFT:
-                menuBarNavigateFocused(hwnd,-1);
-              return 1;
-              case VK_RIGHT:
-                menuBarNavigateFocused(hwnd,1);
-              return 1;
-              case VK_ESCAPE:
-                menuBarDeactivate(hwnd);
-              return 1;
-              case VK_DOWN:
-              case VK_RETURN:
-              case VK_SPACE:
-                {
-                  MENUITEMINFO *inf = menu->items.Get(menu->sel_vis);
-                  if (inf && inf->hSubMenu)
-                  {
-                    RECT r = g_menubar_lastrect;
-                    g_menubar_active_drag = true;
-                    runMenuBar(hwnd,menu,menu->sel_vis,&r,0xbeee);
-                  }
-                  else if (inf && inf->wID)
-                  {
-                    menuBarDeactivate(hwnd);
-                    SendMessage(hwnd,WM_COMMAND,inf->wID,0);
-                  }
-                }
-              return 1;
-            }
-          }
-        }
+        if (swell_handle_menubar_key(hwnd,msg,wParam,lParam)) return 1;
 
         if (msg == WM_KEYDOWN && hwnd->m_menu && 
             lParam == (FVIRTKEY | FALT) && (

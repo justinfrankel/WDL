@@ -1419,6 +1419,9 @@ static void OnKeyEvent(GdkEventKey *k)
   if (is_extended) modifiers |= 1<<24;
 
   MSG msg = { hwnd, msgtype, kv, modifiers, };
+  if (swell_handle_menubar_key(hwnd, msg.message, msg.wParam, msg.lParam))
+    return;
+
   INT_PTR extra_flags = 0;
   if (DialogBoxIsActive()) extra_flags |= 1;
   if (SWELLAppMain(SWELLAPP_PROCESSMESSAGE,(INT_PTR)&msg,extra_flags)<=0)
