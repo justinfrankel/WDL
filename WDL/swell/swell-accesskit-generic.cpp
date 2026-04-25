@@ -1329,12 +1329,42 @@ static void swell_accesskit_populate_column_header_node(HWND hwnd, int column, S
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
 }
 
+static void swell_accesskit_append_listview_cell_text(HWND hwnd, int row, int col, std::string *label)
+{
+  if (!hwnd || !label) return;
+
+  char text[1024];
+  if (!swell_accesskit_get_listview_item_text(hwnd,row,col,text,sizeof(text)) || !text[0]) return;
+
+  if (!label->empty()) label->append(", ");
+
+  char header[512];
+  header[0] = 0;
+  swell_accesskit_get_listview_column_text(hwnd,col,header,sizeof(header));
+  if (header[0])
+  {
+    label->append(header);
+    label->append(": ");
+  }
+  label->append(text);
+}
+
 static void swell_accesskit_populate_grid_row_node(HWND hwnd, int row, int column_count, SWELL_AccessKitOwnedNode *node)
 {
   if (!hwnd || !node) return;
   memset(&node->pod,0,sizeof(node->pod));
   node->pod.id = swell_accesskit_grid_row_id_for_hwnd(hwnd,row);
   node->pod.role = SWELL_ACCESSKIT_ROLE_ROW;
+  std::string label;
+  for (int col = 0; col < column_count; ++col)
+    swell_accesskit_append_listview_cell_text(hwnd,row,col,&label);
+  if (label.empty())
+  {
+    char buf[64];
+    snprintf(buf,sizeof(buf),"Row %d",row + 1);
+    label.assign(buf);
+  }
+  swell_accesskit_copy_std_string(&node->pod.label,&node->label_storage,label);
   node->pod.row_index = (size_t)row + 1;
   node->pod.position_in_set = (size_t)row + 1;
   node->pod.size_of_set = (size_t)ListView_GetItemCount(hwnd);
