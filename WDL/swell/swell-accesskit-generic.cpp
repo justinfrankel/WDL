@@ -85,6 +85,18 @@ static bool g_accesskit_debug = false;
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
 
+static bool swell_accesskit_is_live_toplevel_hwnd(HWND root)
+{
+  if (!root) return false;
+  HWND hwnd = SWELL_topwindows;
+  while (hwnd)
+  {
+    if (hwnd == root) return !hwnd->m_parent && !hwnd->m_hashaddestroy;
+    hwnd = hwnd->m_next;
+  }
+  return false;
+}
+
 static HWND swell_accesskit_get_root(HWND hwnd)
 {
   while (hwnd && hwnd->m_parent) hwnd = hwnd->m_parent;
@@ -254,7 +266,7 @@ static bool swell_accesskit_window_exists_locked(SWELL_AccessKitWindowState *nee
 
 static bool swell_accesskit_is_window_focused(HWND root)
 {
-  if (!root || !root->m_oswindow) return false;
+  if (!swell_accesskit_is_live_toplevel_hwnd(root) || !root->m_oswindow) return false;
   if (SWELL_focused_oswindow == root->m_oswindow && swell_is_app_inactive() <= 0) return true;
 
   HWND focused = SWELL_GetFocusedChild(root);
@@ -1842,7 +1854,7 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
 
 static void swell_accesskit_rebuild_and_push(SWELL_AccessKitWindowState *state)
 {
-  if (!state || !state->host || !state->hwnd || state->hwnd->m_hashaddestroy || !state->hwnd->m_oswindow) return;
+  if (!state || !state->host || !swell_accesskit_is_live_toplevel_hwnd(state->hwnd) || !state->hwnd->m_oswindow) return;
 
   SWELL_AccessKitOwnedSnapshot snapshot;
   if (!swell_accesskit_build_snapshot(state->hwnd, &snapshot)) return;
