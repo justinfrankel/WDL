@@ -84,6 +84,8 @@ static bool g_accesskit_debug = false;
 static bool g_accesskit_debug_file_ready = false;
 static unsigned int g_accesskit_debug_dump_serial = 0;
 static const char *g_accesskit_debug_file_path = "/tmp/swell-accesskit-debug.log";
+static HWND g_accesskit_grid_focus_hwnd = NULL;
+static int g_accesskit_grid_focus_column = -1;
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
@@ -247,6 +249,23 @@ static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
   return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION, index + 1);
 }
 
+static int swell_accesskit_get_listview_focus_column(HWND hwnd, const swell_accesskit_listview_info *info, int row)
+{
+  if (!hwnd || !info || info->column_count <= 0) return 0;
+  if (g_accesskit_grid_focus_hwnd == hwnd &&
+      g_accesskit_grid_focus_column >= 0 &&
+      g_accesskit_grid_focus_column < info->column_count)
+    return g_accesskit_grid_focus_column;
+
+  for (int col = 0; col < info->column_count; ++col)
+  {
+    char text[1024];
+    if (swell_accesskit_get_listview_item_text(hwnd,row,col,text,sizeof(text)) && text[0])
+      return col;
+  }
+  return 0;
+}
+
 static bool swell_accesskit_get_listview_active_node_id(HWND hwnd, uint64_t *node_id)
 {
   swell_accesskit_listview_info info;
@@ -263,7 +282,7 @@ static bool swell_accesskit_get_listview_active_node_id(HWND hwnd, uint64_t *nod
   if (node_id)
   {
     if (info.is_report)
-      *node_id = swell_accesskit_grid_cell_id_for_hwnd(hwnd,active,0);
+      *node_id = swell_accesskit_grid_cell_id_for_hwnd(hwnd,active,swell_accesskit_get_listview_focus_column(hwnd,&info,active));
     else
     {
       uintptr_t identity = 0;
@@ -1784,7 +1803,7 @@ static int swell_accesskit_popup_item_index_from_node(uint64_t node_id)
   return (int)(node_id & 0xfff);
 }
 
-static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint64_t node_id, int *index_out)
+static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint64_t node_id, int *index_out, int *column_out)
 {
   if (!parent || parent->m_hashaddestroy || !parent->m_visible) return NULL;
   if (swell_accesskit_hwnd_is_listview(parent))
@@ -1800,6 +1819,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
         if (info.is_report)
         {
           found = swell_accesskit_grid_row_id_for_hwnd(parent,i) == node_id;
+          if (found && column_out) *column_out = -1;
           if (!found)
           {
             for (int col = 0; col < info.column_count; ++col)
@@ -1807,6 +1827,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
               if (swell_accesskit_grid_cell_id_for_hwnd(parent,i,col) == node_id)
               {
                 found = true;
+                if (column_out) *column_out = col;
                 break;
               }
             }
@@ -1819,6 +1840,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
         if (found)
         {
           if (index_out) *index_out = i;
+          if (!info.is_report && column_out) *column_out = -1;
           return parent;
         }
       }
@@ -1835,6 +1857,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
         if (item && swell_accesskit_tree_item_id(item) == node_id)
         {
           if (index_out) *index_out = i;
+          if (column_out) *column_out = -1;
           return parent;
         }
       }
@@ -1850,6 +1873,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
         if (swell_accesskit_tab_id_for_hwnd(parent,i) == node_id)
         {
           if (index_out) *index_out = i;
+          if (column_out) *column_out = -1;
           return parent;
         }
       }
@@ -1859,7 +1883,7 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
   HWND child = parent->m_children;
   while (child)
   {
-    HWND found = swell_accesskit_find_collection_for_synthetic_node(child,node_id,index_out);
+    HWND found = swell_accesskit_find_collection_for_synthetic_node(child,node_id,index_out,column_out);
     if (found) return found;
     child = child->m_next;
   }
@@ -1877,10 +1901,16 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
       swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_TAB))
   {
     int index = -1;
-    HWND target = swell_accesskit_find_collection_for_synthetic_node(state->hwnd,action->target_node,&index);
+    int column = -1;
+    HWND target = swell_accesskit_find_collection_for_synthetic_node(state->hwnd,action->target_node,&index,&column);
     if (!target) return true;
     if (swell_accesskit_hwnd_is_listview(target) && index >= 0)
     {
+      if (column >= 0)
+      {
+        g_accesskit_grid_focus_hwnd = target;
+        g_accesskit_grid_focus_column = column;
+      }
       if (action->action == SWELL_ACCESSKIT_ACTION_FOCUS)
       {
         SetFocus(target);
