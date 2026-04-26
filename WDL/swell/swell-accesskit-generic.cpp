@@ -263,7 +263,7 @@ static bool swell_accesskit_get_listview_active_node_id(HWND hwnd, uint64_t *nod
   if (node_id)
   {
     if (info.is_report)
-      *node_id = swell_accesskit_grid_row_id_for_hwnd(hwnd,active);
+      *node_id = swell_accesskit_grid_cell_id_for_hwnd(hwnd,active,0);
     else
     {
       uintptr_t identity = 0;
@@ -1422,6 +1422,10 @@ static void swell_accesskit_populate_grid_cell_node(HWND hwnd, int row, int col,
   swell_accesskit_copy_string(&node->pod.label,&node->label_storage,text);
   node->pod.row_index = (size_t)row + 1;
   node->pod.column_index = (size_t)col + 1;
+  node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED;
+  if (ListView_GetItemState(hwnd,row,LVIS_SELECTED)) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+  node->pod.action_mask = SWELL_ACCESSKIT_ACTION_FOCUS_MASK | SWELL_ACCESSKIT_ACTION_CLICK_MASK |
+      SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW_MASK;
   node->labelled_by_storage.push_back(swell_accesskit_column_header_id_for_hwnd(hwnd,col));
   node->pod.labelled_by_count = node->labelled_by_storage.size();
   node->pod.labelled_by = node->labelled_by_storage.data();
@@ -1792,9 +1796,27 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
       {
         uintptr_t identity = 0;
         swell_accesskit_get_listview_item_identity(parent,i,&identity);
-        uint64_t id = info.is_report ? swell_accesskit_grid_row_id_for_hwnd(parent,i) :
-            swell_accesskit_list_item_id_for_hwnd(parent,i,identity);
-        if (id == node_id)
+        bool found = false;
+        if (info.is_report)
+        {
+          found = swell_accesskit_grid_row_id_for_hwnd(parent,i) == node_id;
+          if (!found)
+          {
+            for (int col = 0; col < info.column_count; ++col)
+            {
+              if (swell_accesskit_grid_cell_id_for_hwnd(parent,i,col) == node_id)
+              {
+                found = true;
+                break;
+              }
+            }
+          }
+        }
+        else
+        {
+          found = swell_accesskit_list_item_id_for_hwnd(parent,i,identity) == node_id;
+        }
+        if (found)
         {
           if (index_out) *index_out = i;
           return parent;
@@ -1850,6 +1872,7 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
 
   if (swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_LIST_ITEM) ||
       swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_GRID_ROW) ||
+      swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_GRID_CELL) ||
       swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_TREE_ITEM) ||
       swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_TAB))
   {
