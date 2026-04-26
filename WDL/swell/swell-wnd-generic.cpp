@@ -7085,7 +7085,9 @@ bool swell_accesskit_get_listview_info(HWND hwnd, swell_accesskit_listview_info 
   listViewState *lvs = hwnd ? (listViewState *)hwnd->m_private_data : NULL;
   if (!info) return false;
   memset(info,0,sizeof(*info));
-  if (!lvs || !hwnd->m_classname || strcmp(hwnd->m_classname,"SysListView32")) return false;
+  if (!lvs || !hwnd->m_classname ||
+      (strcmp(hwnd->m_classname,"SysListView32") && strcmp(hwnd->m_classname,"ListBox")))
+    return false;
 
   RECT cr;
   GetClientRect(hwnd,&cr);

@@ -133,7 +133,8 @@ static bool swell_accesskit_hwnd_has_combo_text_run(HWND hwnd)
 
 static bool swell_accesskit_hwnd_is_listview(HWND hwnd)
 {
-  return hwnd && hwnd->m_classname && !strcmp(hwnd->m_classname, "SysListView32");
+  return hwnd && hwnd->m_classname &&
+      (!strcmp(hwnd->m_classname, "SysListView32") || !strcmp(hwnd->m_classname, "ListBox"));
 }
 
 static bool swell_accesskit_hwnd_is_treeview(HWND hwnd)
@@ -244,6 +245,33 @@ static uint64_t swell_accesskit_tab_id_for_hwnd(HWND hwnd, int index)
 static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
 {
   return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION, index + 1);
+}
+
+static bool swell_accesskit_get_listview_active_node_id(HWND hwnd, uint64_t *node_id)
+{
+  swell_accesskit_listview_info info;
+  swell_accesskit_collection_range range;
+  if (!swell_accesskit_get_listview_info(hwnd,&info) ||
+      !swell_accesskit_get_listview_export_range(hwnd,&range))
+    return false;
+
+  const int focused = info.focused_index >= 0 && info.focused_index < info.item_count ? info.focused_index : -1;
+  const int selected = info.selected_index >= 0 && info.selected_index < info.item_count ? info.selected_index : -1;
+  const int active = focused >= 0 ? focused : selected;
+  if (active < range.first || active >= range.first + range.count) return false;
+
+  if (node_id)
+  {
+    if (info.is_report)
+      *node_id = swell_accesskit_grid_row_id_for_hwnd(hwnd,active);
+    else
+    {
+      uintptr_t identity = 0;
+      swell_accesskit_get_listview_item_identity(hwnd,active,&identity);
+      *node_id = swell_accesskit_list_item_id_for_hwnd(hwnd,active,identity);
+    }
+  }
+  return true;
 }
 
 static bool swell_accesskit_get_combo_current_option(HWND hwnd, std::string *text, int *selected_index, int *item_count)
@@ -419,7 +447,7 @@ static uint32_t swell_accesskit_role_for_hwnd(HWND hwnd)
   if (!strcmp(classname, "msctls_progress32")) return SWELL_ACCESSKIT_ROLE_PROGRESS_INDICATOR;
   if (!strcmp(classname, "combobox"))
     return swell_accesskit_combo_is_editable(hwnd) ? SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX : SWELL_ACCESSKIT_ROLE_COMBO_BOX;
-  if (!strcmp(classname, "SysListView32"))
+  if (swell_accesskit_hwnd_is_listview(hwnd))
   {
     swell_accesskit_listview_info info;
     if (swell_accesskit_get_listview_info(hwnd,&info))
@@ -803,14 +831,7 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       node->pod.scroll_y_max = info.scroll_y_max;
       node->pod.child_action_mask |= SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW_MASK;
       if (info.is_multiselect) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_MULTISELECTABLE;
-      const int active = info.focused_index >= 0 ? info.focused_index : info.selected_index;
-      if (active >= 0)
-      {
-        uintptr_t identity = 0;
-        swell_accesskit_get_listview_item_identity(hwnd,active,&identity);
-        node->pod.active_descendant = info.is_report ? swell_accesskit_grid_row_id_for_hwnd(hwnd,active) :
-            swell_accesskit_list_item_id_for_hwnd(hwnd,active,identity);
-      }
+      swell_accesskit_get_listview_active_node_id(hwnd,&node->pod.active_descendant);
     }
   }
   else if (swell_accesskit_hwnd_is_treeview(hwnd))
@@ -1623,6 +1644,12 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
     if (swell_accesskit_get_treeview_info(focused,&info) && info.selected_item)
       snapshot->focus_id = swell_accesskit_tree_item_id(info.selected_item);
   }
+  else if (focused && swell_accesskit_hwnd_is_listview(focused))
+  {
+    uint64_t active_id = 0;
+    if (swell_accesskit_get_listview_active_node_id(focused,&active_id))
+      snapshot->focus_id = active_id;
+  }
   else if (focused && swell_accesskit_hwnd_is_tab(focused))
   {
     swell_accesskit_tab_info info;
@@ -1839,8 +1866,7 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
       else if (action->action == SWELL_ACCESSKIT_ACTION_CLICK)
       {
         SetFocus(target);
-        if (target->m_classname && !strcmp(target->m_classname,"SysListView32"))
-          ListView_SetItemState(target,index,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
+        ListView_SetItemState(target,index,LVIS_SELECTED|LVIS_FOCUSED,LVIS_SELECTED|LVIS_FOCUSED);
       }
       else if (action->action == SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW)
       {
