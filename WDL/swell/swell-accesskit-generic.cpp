@@ -1614,22 +1614,7 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
   swell_accesskit_snapshot_build_recursive(snapshot, root, focused);
   swell_accesskit_apply_nearby_labels(snapshot);
 
-  if (focused && swell_accesskit_hwnd_is_listview(focused))
-  {
-    swell_accesskit_listview_info info;
-    if (swell_accesskit_get_listview_info(focused,&info))
-    {
-      const int active = info.focused_index >= 0 ? info.focused_index : info.selected_index;
-      if (active >= 0)
-      {
-        uintptr_t identity = 0;
-        swell_accesskit_get_listview_item_identity(focused,active,&identity);
-        snapshot->focus_id = info.is_report ? swell_accesskit_grid_row_id_for_hwnd(focused,active) :
-            swell_accesskit_list_item_id_for_hwnd(focused,active,identity);
-      }
-    }
-  }
-  else if (focused && swell_accesskit_hwnd_is_treeview(focused))
+  if (focused && swell_accesskit_hwnd_is_treeview(focused))
   {
     swell_accesskit_treeview_info info;
     if (swell_accesskit_get_treeview_info(focused,&info) && info.selected_item)
