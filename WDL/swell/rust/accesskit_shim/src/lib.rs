@@ -7,6 +7,8 @@ use accesskit_unix::Adapter;
 use std::collections::VecDeque;
 use std::env;
 use std::ffi::{c_char, CString};
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::ptr;
 use std::slice;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -607,6 +609,119 @@ fn debug_enabled() -> bool {
     env::var_os("SWELL_ACCESSKIT_DEBUG").is_some()
 }
 
+fn debug_node_summary(id: NodeId, node: &Node) -> String {
+    let label = node.label().unwrap_or("");
+    format!(
+        "{:?} role={:?} row={:?} pos={:?} selected={:?} active_descendant={:?} label={:?}",
+        id,
+        node.role(),
+        node.row_index(),
+        node.position_in_set(),
+        node.is_selected(),
+        node.active_descendant(),
+        label
+    )
+}
+
+fn debug_find_node<'a>(update: &'a TreeUpdate, id: NodeId) -> Option<&'a Node> {
+    update
+        .nodes
+        .iter()
+        .find_map(|(node_id, node)| (*node_id == id).then_some(node))
+}
+
+fn debug_update_has_node(update: &TreeUpdate, id: NodeId) -> bool {
+    update.nodes.iter().any(|(node_id, _)| *node_id == id)
+}
+
+fn debug_log_update_transition(old: Option<&TreeUpdate>, new: &TreeUpdate) {
+    if !debug_enabled() {
+        return;
+    }
+
+    let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/swell-accesskit-debug.log")
+    else {
+        return;
+    };
+
+    let _ = writeln!(file, "\n----- AccessKit shim transition -----");
+    match old {
+        Some(old) => {
+            if old.focus != new.focus {
+                let _ = writeln!(file, "focus {:?} -> {:?}", old.focus, new.focus);
+            } else {
+                let _ = writeln!(file, "focus unchanged {:?}", new.focus);
+            }
+
+            let mut added = 0;
+            for (id, node) in &new.nodes {
+                if !debug_update_has_node(old, *id) {
+                    if added < 32 {
+                        let _ = writeln!(file, "added {}", debug_node_summary(*id, node));
+                    }
+                    added += 1;
+                }
+            }
+            if added > 32 {
+                let _ = writeln!(file, "added ... {} more", added - 32);
+            }
+
+            let mut removed = 0;
+            for (id, node) in &old.nodes {
+                if !debug_update_has_node(new, *id) {
+                    if removed < 32 {
+                        let _ = writeln!(file, "removed {}", debug_node_summary(*id, node));
+                    }
+                    removed += 1;
+                }
+            }
+            if removed > 32 {
+                let _ = writeln!(file, "removed ... {} more", removed - 32);
+            }
+
+            for (id, new_node) in &new.nodes {
+                let old_node = debug_find_node(old, *id);
+                let old_active = old_node.and_then(|node| node.active_descendant());
+                let new_active = new_node.active_descendant();
+                if old_active != new_active {
+                    let _ = writeln!(
+                        file,
+                        "active-descendant on {:?}: {:?} -> {:?} ({})",
+                        id,
+                        old_active,
+                        new_active,
+                        debug_node_summary(*id, new_node)
+                    );
+                }
+
+                let old_selected = old_node.and_then(|node| node.is_selected());
+                let new_selected = new_node.is_selected();
+                if old_selected != new_selected {
+                    let _ = writeln!(
+                        file,
+                        "selection on {:?}: {:?} -> {:?} ({})",
+                        id,
+                        old_selected,
+                        new_selected,
+                        debug_node_summary(*id, new_node)
+                    );
+                }
+            }
+        }
+        None => {
+            let _ = writeln!(
+                file,
+                "initial update focus {:?} nodes={}",
+                new.focus,
+                new.nodes.len()
+            );
+        }
+    }
+}
+
 fn atspi_connection() -> Option<&'static Connection> {
     ATSPI_CONNECTION
         .get_or_init(|| {
@@ -760,6 +875,7 @@ pub extern "C" fn swell_accesskit_host_commit_full_tree(
     };
 
     if let Ok(mut cached) = host.shared.cached_update.lock() {
+        debug_log_update_transition(cached.as_ref(), &update);
         *cached = Some(update.clone());
     }
 
