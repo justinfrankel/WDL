@@ -199,23 +199,28 @@ static uint64_t swell_accesskit_indexed_id(HWND hwnd, uint64_t ns, int index)
   return ns | ((swell_accesskit_pointer_bits(hwnd) & 0x000000ffffffffull) << 12) | (uint64_t)(index & 0xfff);
 }
 
+static uint64_t swell_accesskit_collection_indexed_id(HWND hwnd, uint64_t ns, int index)
+{
+  return ns | ((swell_accesskit_pointer_bits(hwnd) & 0x000000ffffffffffull) << 20) | (uint64_t)(index & 0xfffff);
+}
+
 static uint64_t swell_accesskit_list_item_id_for_hwnd(HWND hwnd, int index, uintptr_t identity)
 {
   if (identity && identity != (uintptr_t)index)
     return SWELL_ACCESSKIT_SYNTHETIC_LIST_ITEM | (identity & 0x0fffffffffffffffull);
-  return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_LIST_ITEM, index);
+  return swell_accesskit_collection_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_LIST_ITEM, index);
 }
 
 static uint64_t swell_accesskit_grid_row_id_for_hwnd(HWND hwnd, int index)
 {
-  return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_GRID_ROW, index);
+  return swell_accesskit_collection_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_GRID_ROW, index);
 }
 
 static uint64_t swell_accesskit_grid_cell_id_for_hwnd(HWND hwnd, int row, int col)
 {
   return SWELL_ACCESSKIT_SYNTHETIC_GRID_CELL |
-      ((swell_accesskit_pointer_bits(hwnd) & 0x000000ffffffull) << 20) |
-      ((uint64_t)(row & 0xfff) << 8) | (uint64_t)(col & 0xff);
+      ((swell_accesskit_pointer_bits(hwnd) & 0x00000000ffffffffull) << 28) |
+      ((uint64_t)(row & 0xfffff) << 8) | (uint64_t)(col & 0xff);
 }
 
 static uint64_t swell_accesskit_column_header_id_for_hwnd(HWND hwnd, int col)
