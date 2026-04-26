@@ -81,6 +81,9 @@ struct SWELL_AccessKitWindowState
 static WDL_Mutex g_accesskit_mutex;
 static SWELL_AccessKitWindowState *g_accesskit_windows;
 static bool g_accesskit_debug = false;
+static bool g_accesskit_debug_file_ready = false;
+static unsigned int g_accesskit_debug_dump_serial = 0;
+static const char *g_accesskit_debug_file_path = "/tmp/swell-accesskit-debug.log";
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
@@ -1663,8 +1666,34 @@ static void swell_accesskit_debug_dump(SWELL_AccessKitWindowState *state)
   if (dump)
   {
     fprintf(stderr, "SWELL AccessKit tree for %p:\n%s\n", state->hwnd, dump);
+    FILE *fp = fopen(g_accesskit_debug_file_path, "a");
+    if (fp)
+    {
+      fprintf(fp,
+          "\n===== SWELL AccessKit update %u hwnd=%p focused_child=%p getfocus=%p window_focused=%d =====\n",
+          ++g_accesskit_debug_dump_serial,
+          state->hwnd,
+          state->hwnd ? SWELL_GetFocusedChild(state->hwnd) : NULL,
+          GetFocus(),
+          swell_accesskit_is_window_focused(state->hwnd) ? 1 : 0);
+      fprintf(fp, "%s\n", dump);
+      fclose(fp);
+    }
     swell_accesskit_string_free(dump);
   }
+}
+
+static void swell_accesskit_debug_reset_file(void)
+{
+  if (!g_accesskit_debug || g_accesskit_debug_file_ready) return;
+
+  FILE *fp = fopen(g_accesskit_debug_file_path, "w");
+  if (fp)
+  {
+    fprintf(fp, "SWELL AccessKit debug log\n");
+    fclose(fp);
+  }
+  g_accesskit_debug_file_ready = true;
 }
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target)
@@ -1977,6 +2006,7 @@ void swell_accesskit_window_created(HWND hwnd)
   if (!root || root->m_parent || !root->m_oswindow) return;
 
   if (getenv("SWELL_ACCESSKIT_DEBUG")) g_accesskit_debug = true;
+  swell_accesskit_debug_reset_file();
 
   WDL_MutexLock lock(&g_accesskit_mutex);
   if (swell_accesskit_find_window_state_locked(root)) return;
