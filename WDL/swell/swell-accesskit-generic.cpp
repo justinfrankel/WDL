@@ -96,9 +96,14 @@ static std::string g_accesskit_announcement_export_text;
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
 
+static bool swell_accesskit_is_internal_menu_window(HWND hwnd)
+{
+  return hwnd && GetProp(hwnd,"SWELL_AccessKitMenuSerial") != NULL;
+}
+
 static bool swell_accesskit_is_live_toplevel_hwnd(HWND root)
 {
-  if (!root) return false;
+  if (!root || swell_accesskit_is_internal_menu_window(root)) return false;
   HWND hwnd = SWELL_topwindows;
   while (hwnd)
   {
@@ -2111,7 +2116,7 @@ static void swell_accesskit_rebuild_and_push(SWELL_AccessKitWindowState *state)
 void swell_accesskit_window_created(HWND hwnd)
 {
   HWND root = swell_accesskit_get_root(hwnd);
-  if (!root || root->m_parent || !root->m_oswindow) return;
+  if (!root || root->m_parent || !root->m_oswindow || swell_accesskit_is_internal_menu_window(root)) return;
 
   if (getenv("SWELL_ACCESSKIT_DEBUG")) g_accesskit_debug = true;
   swell_accesskit_debug_reset_file();
