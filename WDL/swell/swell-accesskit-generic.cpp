@@ -165,6 +165,114 @@ static uint64_t swell_accesskit_text_run_id_for_hwnd(HWND hwnd)
   return ((uint64_t)(uintptr_t)hwnd << 1) | 1u;
 }
 
+static bool swell_accesskit_hwnd_has_multiline_text_runs(HWND hwnd)
+{
+  return swell_accesskit_hwnd_has_text_run(hwnd) && (hwnd->m_style & ES_MULTILINE);
+}
+
+static int swell_accesskit_multiline_text_run_count(HWND hwnd)
+{
+  if (!swell_accesskit_hwnd_has_multiline_text_runs(hwnd)) return 1;
+
+  int count = 1;
+  const char *text = hwnd->m_title.Get();
+  if (!text) return count;
+  while (*text)
+  {
+    if (*text == '\n') ++count;
+    ++text;
+  }
+  return count;
+}
+
+static uint64_t swell_accesskit_text_run_id_for_hwnd_line(HWND hwnd, int line_index)
+{
+  return swell_accesskit_text_run_id_for_hwnd(hwnd) + (uint64_t)wdl_max(line_index,0) * 2u;
+}
+
+static bool swell_accesskit_get_text_run_line(HWND hwnd, int line_index, const char **start, int *byte_len, int *char_start, int *char_len)
+{
+  if (!hwnd || line_index < 0) return false;
+  const char *text = hwnd->m_title.Get();
+  if (!text) text = "";
+
+  const char *line_start = text;
+  int line_char_start = 0;
+  int index = 0;
+  for (const char *p = text; ; )
+  {
+    const int len = *p ? wdl_utf8_parsechar(p, NULL) : 0;
+    const int use_len = len > 0 ? len : (*p ? 1 : 0);
+    const bool at_break = !*p || *p == '\n';
+    if (at_break)
+    {
+      if (index == line_index)
+      {
+        const char *line_end = *p == '\n' ? p + 1 : p;
+        if (start) *start = line_start;
+        if (byte_len) *byte_len = (int)(line_end - line_start);
+        if (char_start) *char_start = line_char_start;
+        if (char_len)
+        {
+          int count = 0;
+          for (const char *q = line_start; q < line_end; )
+          {
+            const int qlen = wdl_utf8_parsechar(q, NULL);
+            q += qlen > 0 ? qlen : 1;
+            ++count;
+          }
+          *char_len = count;
+        }
+        return true;
+      }
+      if (!*p) return false;
+      ++index;
+      for (const char *q = line_start; q < p + 1; )
+      {
+        const int qlen = wdl_utf8_parsechar(q, NULL);
+        q += qlen > 0 ? qlen : 1;
+        ++line_char_start;
+      }
+      line_start = p + 1;
+    }
+    if (!*p) return false;
+    p += use_len;
+  }
+}
+
+static void swell_accesskit_text_position_for_offset(HWND hwnd, int offset, uint64_t *node_id, size_t *character_index)
+{
+  const int line_count = swell_accesskit_multiline_text_run_count(hwnd);
+  for (int line = 0; line < line_count; ++line)
+  {
+    int char_start = 0, char_len = 0;
+    if (!swell_accesskit_get_text_run_line(hwnd,line,NULL,NULL,&char_start,&char_len)) continue;
+    if (offset == char_start || offset < char_start + char_len || line + 1 == line_count)
+    {
+      if (node_id) *node_id = swell_accesskit_text_run_id_for_hwnd_line(hwnd,line);
+      if (character_index) *character_index = (size_t)wdl_max(offset - char_start,0);
+      return;
+    }
+  }
+  if (node_id) *node_id = swell_accesskit_text_run_id_for_hwnd(hwnd);
+  if (character_index) *character_index = 0;
+}
+
+static bool swell_accesskit_text_offset_for_position(HWND hwnd, uint64_t node_id, size_t character_index, int *offset)
+{
+  if (!hwnd || !offset) return false;
+  const int line_count = swell_accesskit_multiline_text_run_count(hwnd);
+  for (int line = 0; line < line_count; ++line)
+  {
+    if (swell_accesskit_text_run_id_for_hwnd_line(hwnd,line) != node_id) continue;
+    int char_start = 0, char_len = 0;
+    if (!swell_accesskit_get_text_run_line(hwnd,line,NULL,NULL,&char_start,&char_len)) return false;
+    *offset = char_start + wdl_min((int)character_index,char_len);
+    return true;
+  }
+  return false;
+}
+
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR = 0x1000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_MENU_BAR_ITEM = 0x2000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_POPUP_MENU = 0x3000000000000000ull;
@@ -442,7 +550,7 @@ static int swell_accesskit_count_nodes(HWND hwnd)
     swell_accesskit_tab_info info;
     if (swell_accesskit_get_tab_info(hwnd,&info)) count += info.count;
   }
-  if (swell_accesskit_hwnd_has_text_run(hwnd)) ++count;
+  if (swell_accesskit_hwnd_has_text_run(hwnd)) count += swell_accesskit_multiline_text_run_count(hwnd);
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd)) ++count;
   if (!hwnd->m_parent && hwnd->m_menu)
@@ -712,12 +820,20 @@ static void swell_accesskit_fill_text_selection(HWND hwnd, SWELL_AccessKitOwnedN
       anchor = (size_t)wdl_min(sel1, text_len);
   }
 
-  node->pod.text_selection_node = swell_accesskit_hwnd_has_combo_text_run(hwnd) ?
-      swell_accesskit_combo_text_run_id_for_hwnd(hwnd) : swell_accesskit_text_run_id_for_hwnd(hwnd);
-  node->pod.text_selection_anchor_node = node->pod.text_selection_node;
-  node->pod.text_selection_focus_node = node->pod.text_selection_node;
-  node->pod.text_selection_anchor = anchor;
-  node->pod.text_selection_focus = focus;
+  if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
+  {
+    node->pod.text_selection_node = swell_accesskit_combo_text_run_id_for_hwnd(hwnd);
+    node->pod.text_selection_anchor_node = node->pod.text_selection_node;
+    node->pod.text_selection_focus_node = node->pod.text_selection_node;
+    node->pod.text_selection_anchor = anchor;
+    node->pod.text_selection_focus = focus;
+  }
+  else
+  {
+    swell_accesskit_text_position_for_offset(hwnd, (int)anchor, &node->pod.text_selection_anchor_node, &node->pod.text_selection_anchor);
+    swell_accesskit_text_position_for_offset(hwnd, (int)focus, &node->pod.text_selection_focus_node, &node->pod.text_selection_focus);
+    node->pod.text_selection_node = node->pod.text_selection_focus_node;
+  }
 }
 
 static void swell_accesskit_fill_button_state(HWND hwnd, SWELL_AccessKitOwnedNode *node)
@@ -768,7 +884,7 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
 
 static int swell_accesskit_count_direct_visible_children(HWND hwnd)
 {
-  int count = swell_accesskit_hwnd_has_text_run(hwnd) ? 1 : 0;
+  int count = swell_accesskit_hwnd_has_text_run(hwnd) ? swell_accesskit_multiline_text_run_count(hwnd) : 0;
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd)) ++count;
   if (swell_accesskit_hwnd_is_listview(hwnd))
@@ -942,7 +1058,11 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
     child = child->m_next;
   }
   if (swell_accesskit_hwnd_has_text_run(hwnd))
-    node->children_storage.push_back(swell_accesskit_text_run_id_for_hwnd(hwnd));
+  {
+    const int line_count = swell_accesskit_multiline_text_run_count(hwnd);
+    for (int line = 0; line < line_count; ++line)
+      node->children_storage.push_back(swell_accesskit_text_run_id_for_hwnd_line(hwnd,line));
+  }
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
     node->children_storage.push_back(swell_accesskit_combo_text_run_id_for_hwnd(hwnd));
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd))
@@ -1032,18 +1152,30 @@ static void swell_accesskit_populate_announcement_node(HWND root, SWELL_AccessKi
   }
 }
 
-static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+static void swell_accesskit_populate_text_run_node(HWND hwnd, int line_index, SWELL_AccessKitOwnedNode *node)
 {
   if (!hwnd || !node) return;
 
   memset(&node->pod, 0, sizeof(node->pod));
   const bool combo_text_run = swell_accesskit_hwnd_has_combo_text_run(hwnd);
-  node->pod.id = combo_text_run ? swell_accesskit_combo_text_run_id_for_hwnd(hwnd) : swell_accesskit_text_run_id_for_hwnd(hwnd);
+  node->pod.id = combo_text_run ? swell_accesskit_combo_text_run_id_for_hwnd(hwnd) : swell_accesskit_text_run_id_for_hwnd_line(hwnd,line_index);
   node->pod.role = SWELL_ACCESSKIT_ROLE_TEXT_RUN;
   node->pod.bounds = combo_text_run ? swell_accesskit_combo_text_run_bounds_for_hwnd(hwnd) : swell_accesskit_text_run_bounds_for_hwnd(hwnd);
-  swell_accesskit_copy_string(&node->pod.value, &node->value_storage, hwnd->m_title.Get() ? hwnd->m_title.Get() : "");
-  swell_accesskit_build_character_lengths(hwnd->m_title.Get(), &node->character_lengths_storage);
-  swell_accesskit_build_character_geometry(hwnd, hwnd->m_title.Get(), &node->character_positions_storage, &node->character_widths_storage);
+  const char *value = hwnd->m_title.Get() ? hwnd->m_title.Get() : "";
+  if (!combo_text_run && swell_accesskit_hwnd_has_multiline_text_runs(hwnd))
+  {
+    const char *line_start = value;
+    int line_byte_len = 0;
+    if (swell_accesskit_get_text_run_line(hwnd,line_index,&line_start,&line_byte_len,NULL,NULL))
+      node->value_storage.assign(line_start,(size_t)line_byte_len);
+    node->pod.value.ptr = node->value_storage.c_str();
+    node->pod.value.len = node->value_storage.size();
+    value = node->value_storage.c_str();
+  }
+  else
+    swell_accesskit_copy_string(&node->pod.value, &node->value_storage, value);
+  swell_accesskit_build_character_lengths(value, &node->character_lengths_storage);
+  swell_accesskit_build_character_geometry(hwnd, value, &node->character_positions_storage, &node->character_widths_storage);
   node->pod.character_length_count = node->character_lengths_storage.size();
   node->pod.character_lengths = node->character_lengths_storage.empty() ? NULL : node->character_lengths_storage.data();
   node->pod.character_position_count = node->character_positions_storage.size();
@@ -1546,13 +1678,17 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
 
   if (swell_accesskit_hwnd_has_text_run(hwnd))
   {
-    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
-    swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
+    const int line_count = swell_accesskit_multiline_text_run_count(hwnd);
+    for (int line = 0; line < line_count; ++line)
+    {
+      snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+      swell_accesskit_populate_text_run_node(hwnd, line, &snapshot->nodes.back());
+    }
   }
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd))
   {
     snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
-    swell_accesskit_populate_text_run_node(hwnd, &snapshot->nodes.back());
+    swell_accesskit_populate_text_run_node(hwnd, 0, &snapshot->nodes.back());
   }
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd))
   {
@@ -1798,7 +1934,12 @@ static HWND swell_accesskit_resolve_node_id(HWND parent, uint64_t node_id)
 {
   if (!parent || parent->m_hashaddestroy || !parent->m_visible) return NULL;
   if (swell_accesskit_node_id_for_hwnd(parent) == node_id) return parent;
-  if (swell_accesskit_hwnd_has_text_run(parent) && swell_accesskit_text_run_id_for_hwnd(parent) == node_id) return parent;
+  if (swell_accesskit_hwnd_has_text_run(parent))
+  {
+    const int line_count = swell_accesskit_multiline_text_run_count(parent);
+    for (int line = 0; line < line_count; ++line)
+      if (swell_accesskit_text_run_id_for_hwnd_line(parent,line) == node_id) return parent;
+  }
   if (swell_accesskit_hwnd_has_combo_text_run(parent) && swell_accesskit_combo_text_run_id_for_hwnd(parent) == node_id) return parent;
 
   HWND child = parent->m_children;
@@ -2077,7 +2218,13 @@ static void swell_accesskit_apply_action(SWELL_AccessKitWindowState *state, cons
     if (swell_accesskit_hwnd_has_combo_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
       SendMessage(target, EM_SETSEL, action->text_selection_anchor, action->text_selection_focus);
     else if (swell_accesskit_hwnd_has_text_run(target) && action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_TEXT_SELECTION)
-      swell_edit_control_set_accessibility_selection(target, (int)action->text_selection_anchor, (int)action->text_selection_focus);
+    {
+      int anchor = (int)action->text_selection_anchor;
+      int focus = (int)action->text_selection_focus;
+      swell_accesskit_text_offset_for_position(target, action->text_selection_anchor_node, action->text_selection_anchor, &anchor);
+      swell_accesskit_text_offset_for_position(target, action->text_selection_focus_node, action->text_selection_focus, &focus);
+      swell_edit_control_set_accessibility_selection(target, anchor, focus);
+    }
   }
   else if ((action->action == SWELL_ACCESSKIT_ACTION_INCREMENT || action->action == SWELL_ACCESSKIT_ACTION_DECREMENT) &&
            swell_accesskit_is_slider(target) && target->m_private_data)
