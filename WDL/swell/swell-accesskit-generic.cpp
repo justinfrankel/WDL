@@ -103,11 +103,12 @@ static bool swell_accesskit_is_internal_menu_window(HWND hwnd)
 
 static bool swell_accesskit_is_live_toplevel_hwnd(HWND root)
 {
-  if (!root || swell_accesskit_is_internal_menu_window(root)) return false;
+  if (!root) return false;
   HWND hwnd = SWELL_topwindows;
   while (hwnd)
   {
-    if (hwnd == root) return !hwnd->m_parent && !hwnd->m_hashaddestroy;
+    if (hwnd == root)
+      return !hwnd->m_parent && !hwnd->m_hashaddestroy && !swell_accesskit_is_internal_menu_window(hwnd);
     hwnd = hwnd->m_next;
   }
   return false;
