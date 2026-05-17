@@ -31,6 +31,8 @@
 
 #include <stdio.h>
 
+enum { OWNER_REPORT_ROWS = 1500 };
+
 #if !defined(_WIN32) && !defined(__APPLE__)
 bool g_quit;
 #endif
@@ -74,8 +76,10 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       resize.init_item(IDC_SLIDER1, 1, 0, 1, 0);
       resize.init_item(IDC_PROGRESS1, 1, 0, 1, 0);
       resize.init_item(IDC_LISTBOX1, 1, 0, 1, 1);
+      resize.init_item(IDC_LISTBOX_MULTI, 1, 0, 1, 1);
       resize.init_item(IDC_EDIT_MULTILINE, 1, 0, 1, 1);
       resize.init_item(IDC_LISTVIEW1, 1, 0, 1, 1);
+      resize.init_item(IDC_LISTVIEW_OWNER, 1, 0, 1, 1);
       resize.init_item(IDC_TREE1, 1, 0, 1, 1);
       resize.init_item(IDC_TAB1, 1, 0, 1, 1);
       resize.init_item(IDCANCEL,0,1,0,1);
@@ -137,6 +141,17 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         SendMessage(listbox, LB_SETCURSEL, 1, 0);
       }
 
+      HWND multilist = GetDlgItem(hwndDlg, IDC_LISTBOX_MULTI);
+      if (multilist)
+      {
+        SendMessage(multilist, LB_ADDSTRING, 0, (LPARAM)"Multi alpha");
+        SendMessage(multilist, LB_ADDSTRING, 0, (LPARAM)"Multi bravo");
+        SendMessage(multilist, LB_ADDSTRING, 0, (LPARAM)"Multi charlie");
+        SendMessage(multilist, LB_SETSEL, TRUE, 0);
+        SendMessage(multilist, LB_SETSEL, TRUE, 2);
+        ListView_SetItemState(multilist, 1, LVIS_FOCUSED, LVIS_FOCUSED);
+      }
+
       SetDlgItemText(hwndDlg, IDC_EDIT_MULTILINE, "First line\nSecond line\nThird line");
 
       HWND listview = GetDlgItem(hwndDlg, IDC_LISTVIEW1);
@@ -187,6 +202,20 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         TreeView_SelectItem(tree, child);
       }
 
+      HWND owner_listview = GetDlgItem(hwndDlg, IDC_LISTVIEW_OWNER);
+      if (owner_listview)
+      {
+        LVCOLUMN col = { LVCF_TEXT | LVCF_WIDTH };
+        col.pszText = (char *)"Track";
+        col.cx = 72;
+        ListView_InsertColumn(owner_listview, 0, &col);
+        col.pszText = (char *)"State";
+        col.cx = 72;
+        ListView_InsertColumn(owner_listview, 1, &col);
+        ListView_SetItemCount(owner_listview, OWNER_REPORT_ROWS);
+        ListView_SetItemState(owner_listview, OWNER_REPORT_ROWS - 5, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+      }
+
       HWND tabs = GetDlgItem(hwndDlg, IDC_TAB1);
       if (tabs)
       {
@@ -202,6 +231,25 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       set_status(hwndDlg, "AccessKit demo ready");
       }
     return 1;
+    case WM_NOTIFY:
+      {
+        NMHDR *hdr = (NMHDR *)lParam;
+        if (hdr && hdr->idFrom == IDC_LISTVIEW_OWNER && hdr->code == LVN_GETDISPINFO)
+        {
+          NMLVDISPINFO *di = (NMLVDISPINFO *)lParam;
+          if (di->item.mask & LVIF_TEXT)
+          {
+            static char text[64];
+            if (di->item.iSubItem == 0)
+              snprintf(text,sizeof(text),"Owner row %d",di->item.iItem + 1);
+            else
+              snprintf(text,sizeof(text),"%s",(di->item.iItem % 2) ? "Armed" : "Ready");
+            di->item.pszText = text;
+          }
+          return 1;
+        }
+      }
+    break;
     case WM_CLOSE:
       DestroyWindow(hwndDlg);
     return 1;
