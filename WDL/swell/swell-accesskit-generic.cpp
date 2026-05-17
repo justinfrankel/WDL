@@ -2082,7 +2082,9 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
     if (!target) return true;
     if (swell_accesskit_hwnd_is_listview(target) && index >= 0)
     {
-      if (column >= 0)
+      if (column >= 0 &&
+          (action->action == SWELL_ACCESSKIT_ACTION_FOCUS ||
+           action->action == SWELL_ACCESSKIT_ACTION_CLICK))
       {
         g_accesskit_grid_focus_hwnd = target;
         g_accesskit_grid_focus_column = column;
