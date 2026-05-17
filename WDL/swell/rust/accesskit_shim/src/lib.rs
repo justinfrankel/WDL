@@ -491,7 +491,7 @@ unsafe fn build_tree_update(
             node.set_active_descendant(NodeId(raw.active_descendant));
         }
         if raw.position_in_set != 0 {
-            node.set_position_in_set(raw.position_in_set);
+            node.set_position_in_set(raw.position_in_set - 1);
         }
         if raw.size_of_set != 0 {
             node.set_size_of_set(raw.size_of_set);
@@ -509,7 +509,7 @@ unsafe fn build_tree_update(
             node.set_column_index(raw.column_index);
         }
         if raw.level != 0 {
-            node.set_level(raw.level);
+            node.set_level(raw.level - 1);
         }
         if raw.scroll_x_max > raw.scroll_x_min {
             node.set_scroll_x(raw.scroll_x);
@@ -1138,6 +1138,26 @@ mod tests {
         let text_selection = update.nodes[2].1.text_selection().unwrap();
         assert_eq!(text_selection.anchor.node, NodeId(4));
         assert_eq!(text_selection.focus.node, NodeId(5));
+    }
+
+    #[test]
+    fn maps_one_based_collection_metadata_to_accesskit_indices() {
+        let mut item = empty_node(1, ROLE_TREE_ITEM);
+        item.position_in_set = 1;
+        item.size_of_set = 4;
+        item.level = 1;
+        let nodes = [item];
+        let snapshot = swell_accesskit_tree_snapshot {
+            root_id: 1,
+            focus_id: 1,
+            node_count: nodes.len(),
+            nodes: nodes.as_ptr(),
+        };
+        let update = unsafe { build_tree_update(TreeId::ROOT, &snapshot) }.unwrap();
+        let item = &update.nodes[0].1;
+        assert_eq!(item.position_in_set(), Some(0));
+        assert_eq!(item.size_of_set(), Some(4));
+        assert_eq!(item.level(), Some(0));
     }
 
     #[test]
