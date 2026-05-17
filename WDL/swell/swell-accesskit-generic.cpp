@@ -1022,7 +1022,7 @@ static void swell_accesskit_populate_announcement_node(HWND root, SWELL_AccessKi
   if (root == g_accesskit_announcement_root && !g_accesskit_announcement_text.empty())
   {
     node->pod.live = g_accesskit_announcement_live;
-    swell_accesskit_copy_string(&node->pod.label,&node->label_storage,g_accesskit_announcement_text.c_str());
+    swell_accesskit_copy_string(&node->pod.value,&node->value_storage,g_accesskit_announcement_text.c_str());
   }
 }
 
