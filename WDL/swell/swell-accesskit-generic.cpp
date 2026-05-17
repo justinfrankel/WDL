@@ -91,6 +91,7 @@ static uint64_t g_accesskit_announcement_id = 0;
 static uint64_t g_accesskit_announcement_serial = 0;
 static uint32_t g_accesskit_announcement_live = SWELL_ACCESSKIT_LIVE_OFF;
 static std::string g_accesskit_announcement_text;
+static std::string g_accesskit_announcement_export_text;
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
@@ -1022,7 +1023,7 @@ static void swell_accesskit_populate_announcement_node(HWND root, SWELL_AccessKi
   if (root == g_accesskit_announcement_root && !g_accesskit_announcement_text.empty())
   {
     node->pod.live = g_accesskit_announcement_live;
-    swell_accesskit_copy_string(&node->pod.value,&node->value_storage,g_accesskit_announcement_text.c_str());
+    swell_accesskit_copy_string(&node->pod.value,&node->value_storage,g_accesskit_announcement_export_text.c_str());
   }
 }
 
@@ -2161,6 +2162,7 @@ void swell_accesskit_window_destroyed(HWND hwnd)
     g_accesskit_announcement_id = 0;
     g_accesskit_announcement_live = SWELL_ACCESSKIT_LIVE_OFF;
     g_accesskit_announcement_text.clear();
+    g_accesskit_announcement_export_text.clear();
   }
   g_accesskit_mutex.Leave();
 
@@ -2267,6 +2269,15 @@ void swell_accesskit_announce(const char *utf8_message, int interrupt)
   if (!target) return;
 
   g_accesskit_announcement_root = target->hwnd;
+  if (g_accesskit_announcement_text == utf8_message)
+  {
+    g_accesskit_announcement_export_text = utf8_message;
+    if (g_accesskit_announcement_serial & 1) g_accesskit_announcement_export_text += ' ';
+  }
+  else
+  {
+    g_accesskit_announcement_export_text = utf8_message;
+  }
   g_accesskit_announcement_text = utf8_message;
   g_accesskit_announcement_live = interrupt ? SWELL_ACCESSKIT_LIVE_ASSERTIVE : SWELL_ACCESSKIT_LIVE_POLITE;
   ++g_accesskit_announcement_serial;
