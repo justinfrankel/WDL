@@ -961,7 +961,7 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       if (menu_hwnd && menu && menu->sel_vis >= 0)
         node->pod.active_descendant = swell_accesskit_popup_item_id_for_hwnd(menu_hwnd, menu->sel_vis);
     }
-    else
+    else if (hwnd == focused)
     {
       int selected_index = -1;
       std::string text;
@@ -1185,7 +1185,7 @@ static void swell_accesskit_populate_text_run_node(HWND hwnd, int line_index, SW
   node->pod.character_widths = node->character_widths_storage.empty() ? NULL : node->character_widths_storage.data();
 }
 
-static void swell_accesskit_populate_combo_option_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
+static void swell_accesskit_populate_combo_option_node(HWND hwnd, HWND focused, SWELL_AccessKitOwnedNode *node)
 {
   if (!hwnd || !node) return;
 
@@ -1198,7 +1198,8 @@ static void swell_accesskit_populate_combo_option_node(HWND hwnd, SWELL_AccessKi
   node->pod.id = swell_accesskit_combo_option_id_for_hwnd(hwnd, selected_index);
   node->pod.role = SWELL_ACCESSKIT_ROLE_LIST_BOX_OPTION;
   swell_accesskit_copy_std_string(&node->pod.label, &node->label_storage, text);
-  node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED | SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+  node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED;
+  if (hwnd == focused) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
   if (selected_index >= 0) node->pod.position_in_set = (size_t)selected_index + 1;
   if (item_count > 0) node->pod.size_of_set = (size_t)item_count;
   node->pod.bounds = swell_accesskit_combo_text_run_bounds_for_hwnd(hwnd);
@@ -1694,7 +1695,7 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd))
   {
     snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
-    swell_accesskit_populate_combo_option_node(hwnd, &snapshot->nodes.back());
+    swell_accesskit_populate_combo_option_node(hwnd, focused, &snapshot->nodes.back());
   }
   if (swell_accesskit_hwnd_is_listview(hwnd))
   {
