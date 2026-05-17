@@ -115,6 +115,11 @@ BEGIN
         MENUITEM "&Checked option", ID_SAMPLE_CHECKED
         MENUITEM "&Radio option", ID_SAMPLE_RADIO
     END
+    POPUP "&Accessibility"
+    BEGIN
+        MENUITEM "&Polite announcement", ID_SAMPLE_ANNOUNCE_POLITE
+        MENUITEM "&Assertive announcement", ID_SAMPLE_ANNOUNCE_ASSERTIVE
+    END
 END
 
 

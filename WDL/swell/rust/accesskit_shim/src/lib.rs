@@ -1,7 +1,7 @@
 use accesskit::{
     Action, ActionData, ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler,
-    HasPopup, Node, NodeId, Orientation, Rect, Role, TextDirection, TextPosition, TextSelection,
-    Toggled, Tree, TreeId, TreeUpdate,
+    HasPopup, Live, Node, NodeId, Orientation, Rect, Role, TextDirection, TextPosition,
+    TextSelection, Toggled, Tree, TreeId, TreeUpdate,
 };
 use accesskit_unix::Adapter;
 use std::collections::VecDeque;
@@ -79,6 +79,9 @@ const TOGGLED_MIXED: u32 = 3;
 
 const ORIENTATION_HORIZONTAL: u32 = 1;
 const ORIENTATION_VERTICAL: u32 = 2;
+
+const LIVE_POLITE: u32 = 1;
+const LIVE_ASSERTIVE: u32 = 2;
 
 const ACTION_NONE: u32 = 0;
 const ACTION_FOCUS: u32 = 1;
@@ -164,6 +167,7 @@ pub struct swell_accesskit_node {
     child_action_mask: u32,
     text_selection_anchor_node: u64,
     text_selection_focus_node: u64,
+    live: u32,
 }
 
 #[repr(C)]
@@ -526,6 +530,11 @@ unsafe fn build_tree_update(
         match raw.orientation {
             ORIENTATION_HORIZONTAL => node.set_orientation(Orientation::Horizontal),
             ORIENTATION_VERTICAL => node.set_orientation(Orientation::Vertical),
+            _ => {}
+        }
+        match raw.live {
+            LIVE_POLITE => node.set_live(Live::Polite),
+            LIVE_ASSERTIVE => node.set_live(Live::Assertive),
             _ => {}
         }
         if (raw.flags & NODE_FLAG_HAS_NUMERIC_VALUE) != 0 {
@@ -1058,6 +1067,7 @@ mod tests {
             child_action_mask: 0,
             text_selection_anchor_node: 0,
             text_selection_focus_node: 0,
+            live: 0,
         }
     }
 
@@ -1128,5 +1138,27 @@ mod tests {
         let text_selection = update.nodes[2].1.text_selection().unwrap();
         assert_eq!(text_selection.anchor.node, NodeId(4));
         assert_eq!(text_selection.focus.node, NodeId(5));
+    }
+
+    #[test]
+    fn maps_live_region_metadata() {
+        let children = [2_u64, 3_u64];
+        let mut root = empty_node(1, ROLE_WINDOW);
+        root.child_count = children.len();
+        root.children = children.as_ptr();
+        let mut polite = empty_node(2, ROLE_LABEL);
+        polite.live = LIVE_POLITE;
+        let mut assertive = empty_node(3, ROLE_LABEL);
+        assertive.live = LIVE_ASSERTIVE;
+        let nodes = [root, polite, assertive];
+        let snapshot = swell_accesskit_tree_snapshot {
+            root_id: 1,
+            focus_id: 1,
+            node_count: nodes.len(),
+            nodes: nodes.as_ptr(),
+        };
+        let update = unsafe { build_tree_update(TreeId::ROOT, &snapshot) }.unwrap();
+        assert_eq!(update.nodes[1].1.live(), Some(Live::Polite));
+        assert_eq!(update.nodes[2].1.live(), Some(Live::Assertive));
     }
 }

@@ -98,6 +98,13 @@ enum
 
 enum
 {
+  SWELL_ACCESSKIT_LIVE_OFF = 0,
+  SWELL_ACCESSKIT_LIVE_POLITE = 1,
+  SWELL_ACCESSKIT_LIVE_ASSERTIVE = 2,
+};
+
+enum
+{
   SWELL_ACCESSKIT_ACTION_NONE = 0,
   SWELL_ACCESSKIT_ACTION_FOCUS = 1,
   SWELL_ACCESSKIT_ACTION_CLICK = 2,
@@ -180,6 +187,7 @@ typedef struct swell_accesskit_node
   uint32_t child_action_mask;
   uint64_t text_selection_anchor_node;
   uint64_t text_selection_focus_node;
+  uint32_t live;
 } swell_accesskit_node;
 
 typedef struct swell_accesskit_tree_snapshot

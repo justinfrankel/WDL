@@ -39,6 +39,7 @@ bool g_quit;
 
 HINSTANCE g_hInstance;
 HWND g_hwnd;
+typedef void (*accessibility_announce_fn)(const char *utf8_message, int interrupt);
 
 static int get_slider_pos(HWND hwndDlg)
 {
@@ -318,6 +319,20 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         return 1;
         case ID_SAMPLE_NESTED:
           set_status(hwndDlg, "Nested menu item");
+        return 1;
+        case ID_SAMPLE_ANNOUNCE_POLITE:
+          {
+            accessibility_announce_fn announce = (accessibility_announce_fn)SWELL_ExtendedAPI("ACCESSIBILITY_ANNOUNCER", NULL);
+            if (announce) announce("Sample polite announcement", 0);
+            set_status(hwndDlg, "Polite announcement");
+          }
+        return 1;
+        case ID_SAMPLE_ANNOUNCE_ASSERTIVE:
+          {
+            accessibility_announce_fn announce = (accessibility_announce_fn)SWELL_ExtendedAPI("ACCESSIBILITY_ANNOUNCER", NULL);
+            if (announce) announce("Sample assertive announcement", 1);
+            set_status(hwndDlg, "Assertive announcement");
+          }
         return 1;
         case ID_QUIT:
         case IDCANCEL:

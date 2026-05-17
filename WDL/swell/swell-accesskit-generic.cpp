@@ -86,6 +86,11 @@ static unsigned int g_accesskit_debug_dump_serial = 0;
 static const char *g_accesskit_debug_file_path = "/tmp/swell-accesskit-debug.log";
 static HWND g_accesskit_grid_focus_hwnd = NULL;
 static int g_accesskit_grid_focus_column = -1;
+static HWND g_accesskit_announcement_root = NULL;
+static uint64_t g_accesskit_announcement_id = 0;
+static uint64_t g_accesskit_announcement_serial = 0;
+static uint32_t g_accesskit_announcement_live = SWELL_ACCESSKIT_LIVE_OFF;
+static std::string g_accesskit_announcement_text;
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
@@ -166,6 +171,7 @@ static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COLUMN_HEADER = 0x90000000000000
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TREE_ITEM = 0xa000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TAB = 0xb000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION = 0xc000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT = 0xd000000000000000ull;
 
 static uint64_t swell_accesskit_pointer_bits(const void *ptr)
 {
@@ -247,6 +253,11 @@ static uint64_t swell_accesskit_tab_id_for_hwnd(HWND hwnd, int index)
 static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
 {
   return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION, index + 1);
+}
+
+static uint64_t swell_accesskit_announcement_id_for_serial(uint64_t serial)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT | (serial & 0x0fffffffffffffffull);
 }
 
 static int swell_accesskit_get_listview_focus_column(HWND hwnd, const swell_accesskit_listview_info *info, int row)
@@ -448,6 +459,8 @@ static int swell_accesskit_count_nodes(HWND hwnd)
         count += 1 + swell_accesskit_count_accessible_menu_items(menu);
       }
     }
+    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
+      ++count;
   }
   return count;
 }
@@ -993,11 +1006,23 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
         if (menu_hwnd) node->children_storage.push_back(swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd));
       }
     }
+    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
+      node->children_storage.push_back(g_accesskit_announcement_id);
   }
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
 
   if (hwnd == focused) node->pod.action_mask |= 0;
+}
+
+static void swell_accesskit_populate_announcement_node(SWELL_AccessKitOwnedNode *node)
+{
+  if (!node || !g_accesskit_announcement_id || g_accesskit_announcement_text.empty()) return;
+  memset(&node->pod,0,sizeof(node->pod));
+  node->pod.id = g_accesskit_announcement_id;
+  node->pod.role = SWELL_ACCESSKIT_ROLE_LABEL;
+  node->pod.live = g_accesskit_announcement_live;
+  swell_accesskit_copy_string(&node->pod.label,&node->label_storage,g_accesskit_announcement_text.c_str());
 }
 
 static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
@@ -1638,6 +1663,11 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
         }
       }
     }
+    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
+    {
+      snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+      swell_accesskit_populate_announcement_node(&snapshot->nodes.back());
+    }
   }
 }
 
@@ -2127,6 +2157,13 @@ void swell_accesskit_window_destroyed(HWND hwnd)
     }
     cursor = &(*cursor)->next;
   }
+  if (g_accesskit_announcement_root == root)
+  {
+    g_accesskit_announcement_root = NULL;
+    g_accesskit_announcement_id = 0;
+    g_accesskit_announcement_live = SWELL_ACCESSKIT_LIVE_OFF;
+    g_accesskit_announcement_text.clear();
+  }
   g_accesskit_mutex.Leave();
 
   if (!state) return;
@@ -2207,6 +2244,37 @@ void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32
   swell_accesskit_notify_keyboard_event(event_type, keyval, hardware_keycode, modifiers, timestamp, event_string, is_text ? 1 : 0);
 }
 
+void swell_accesskit_announce(const char *utf8_message, int interrupt)
+{
+  if (!utf8_message || !*utf8_message) return;
+
+  WDL_MutexLock lock(&g_accesskit_mutex);
+  SWELL_AccessKitWindowState *target = NULL;
+  SWELL_AccessKitWindowState *fallback = NULL;
+  SWELL_AccessKitWindowState *state = g_accesskit_windows;
+  while (state)
+  {
+    if (swell_accesskit_is_live_toplevel_hwnd(state->hwnd) && state->host)
+    {
+      if (!fallback) fallback = state;
+      if (swell_accesskit_is_window_focused(state->hwnd))
+      {
+        target = state;
+        break;
+      }
+    }
+    state = state->next;
+  }
+  if (!target) target = fallback;
+  if (!target) return;
+
+  g_accesskit_announcement_root = target->hwnd;
+  g_accesskit_announcement_text = utf8_message;
+  g_accesskit_announcement_live = interrupt ? SWELL_ACCESSKIT_LIVE_ASSERTIVE : SWELL_ACCESSKIT_LIVE_POLITE;
+  g_accesskit_announcement_id = swell_accesskit_announcement_id_for_serial(++g_accesskit_announcement_serial);
+  target->dirty = true;
+}
+
 #else
 
 void swell_accesskit_window_created(HWND hwnd) { (void)hwnd; }
@@ -2214,6 +2282,7 @@ void swell_accesskit_window_destroyed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_window_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_focus_changed(void) {}
 void swell_accesskit_pump(void) {}
+void swell_accesskit_announce(const char *utf8_message, int interrupt) { (void)utf8_message; (void)interrupt; }
 void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text)
 {
   (void)event_type;

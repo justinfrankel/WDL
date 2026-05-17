@@ -26,6 +26,8 @@
 #define ID_SAMPLE_CHECKED               40003
 #define ID_SAMPLE_RADIO                 40004
 #define ID_SAMPLE_NESTED                40005
+#define ID_SAMPLE_ANNOUNCE_POLITE       40006
+#define ID_SAMPLE_ANNOUNCE_ASSERTIVE    40007
 
 // Next default values for new objects
 // 

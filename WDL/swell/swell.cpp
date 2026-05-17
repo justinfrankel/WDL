@@ -1176,6 +1176,10 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
   {
     g_swell_fontpangram = (const char *)v;
   }
+#if defined(SWELL_TARGET_GDK) && defined(SWELL_ACCESSKIT)
+  else if (!strcmp(key,"ACCESSIBILITY_ANNOUNCER"))
+    return (void *)swell_accesskit_announce;
+#endif
 #ifdef SWELL_TARGET_GDK
   else if (!strcmp(key,"-FULLSCREEN"))
     return v && swell_gdk_set_fullscreen((HWND)v,0) ? v : NULL;
