@@ -154,6 +154,26 @@
 - Tighten only the collection behaviors that validation proves weak: multiselect state/event fidelity, owner-data/ranged-export stability, row/cell action routing, and safe focus fallback when an intended synthetic target cannot be exported.
 - Treat the direct AT-SPI branch as concluded research, not the implementation path to extend.
 
+## Completed: OSARA Announcement Extension API
+
+- Linux SWELL now exposes a provider-owned announcement hook through the existing extension mechanism:
+  - `SWELL_ExtendedAPI("ACCESSIBILITY_ANNOUNCER", NULL)` returns `void (*)(const char *utf8_message, int interrupt)` when the GDK AccessKit provider is built;
+  - builds without AccessKit leave the hook unavailable, which lets OSARA treat presence as the capability boundary;
+  - the backend-neutral hook name keeps OSARA independent of AccessKit and Rust shim internals.
+- Announcement delivery stays inside SWELL’s existing AccessKit provider:
+  - the C++↔Rust snapshot ABI now carries append-only live-region metadata for `Live::Polite` / `Live::Assertive`;
+  - `interrupt == 0` maps to polite, nonzero maps to assertive;
+  - each accepted announcement creates one synthetic non-focusable live-region child with a fresh synthetic ID, so repeated identical strings still emit while only the newest node remains in the rebuilt tree;
+  - announcements prefer the focused live top-level window and fall back to another live provider window; null/empty messages or lack of a live target are safe no-ops.
+- Manual harness support now exists in the sample app:
+  - polite and assertive announcement menu actions are available;
+  - invoking the polite action repeatedly exercises duplicate-string delivery.
+- Verified:
+  - `make -C WDL/swell -j2`;
+  - `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`.
+- Still worth doing manually:
+  - Orca verification with `SWELL_ACCESSKIT_DEBUG=1` enabled to confirm speech, repeated-message delivery, and unchanged normal focus behavior.
+
 ## Deferred Work
 
 - Broader access-key exposure beyond menu items:
