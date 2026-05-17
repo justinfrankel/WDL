@@ -7,7 +7,8 @@
 - The sibling AccessKit dependency is still expected at `../accesskit`.
 - Phase 2 text semantics and AT-SPI keyboard event forwarding have been implemented.
 - Menu, combo-box, list/listview, tree, tab, and label-relation AccessKit modeling has been committed.
-- The production AccessKit path now also includes collection/focus hardening through `8681beee`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, and shim transition logging.
+- The production AccessKit path now also includes collection/focus hardening through `5c62f243`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, shim transition logging, stale-root protection, combo selection cleanup, one-based collection metadata normalization, and tree refreshes on expansion.
+- Provider-owned live announcements, persistent live-region export, duplicate-announcement handling, hidden internal popup windows, and multiline text-run export are implemented on the current branch.
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
@@ -29,6 +30,18 @@
   - `33ef8704` (`Label AccessKit grid rows`)
   - `783b48b2` (`Focus AccessKit grid cells in report lists`)
   - `8681beee` (`Track AccessKit grid cell focus columns`)
+- Current follow-up commits:
+  - `555bd507` (`add AccessKit announcement extension API`)
+  - `cdcf6c22` (`Keep AccessKit live region node persistent`)
+  - `4ab2bc89` (`Export live announcement text as label value`)
+  - `cf3cac18` (`Force repeated live announcements to change`)
+  - `d2fd6475` (`Hide internal popup menu windows from AccessKit`)
+  - `12fd0288` (`Expose multiline edit text as separate AccessKit runs`)
+  - `17e8235f` (`swell: avoid dereferencing stale AccessKit roots`)
+  - `0ee422c4` (`swell: keep unfocused combo selections quiet`)
+  - `2bedced7` (`swell: preserve collapsed combo selection state`)
+  - `b2357349` (`accesskit shim: normalize one-based collection metadata`)
+  - `5c62f243` (`swell: refresh tree accessibility on expansion`)
 - Sibling dependency branch: `../accesskit` branch `swell-unix-activation-fix`
 - Sibling dependency commit: `f4778b696747628ea213d10f57c078c23ca0ae90`
 
@@ -59,8 +72,9 @@
 ## Text Semantics
 
 - Single-line SWELL `Edit` controls now expose a `TextInput` node plus a synthetic stable `TextRun` child.
+- Multiline SWELL `Edit` controls now expose a `MultilineTextInput` node plus one synthetic `TextRun` child per rendered line.
 - The `TextInput` node carries focusability, value semantics, `SetTextSelection`, and current text selection.
-- The `TextRun` node carries:
+- `TextRun` nodes carry:
   - text content
   - UTF-8 character lengths
   - character positions
@@ -115,7 +129,7 @@
 - Checkbox -> `CHECK_BOX`
 - Radio button -> `RADIO_BUTTON`
 - Single-line edit -> `TEXT_INPUT` with synthetic `TEXT_RUN`
-- Multiline edit -> `MULTILINE_TEXT_INPUT` without multiline-specific text geometry in this phase
+- Multiline edit -> `MULTILINE_TEXT_INPUT` with synthetic per-line `TEXT_RUN` children
 - Slider -> `SLIDER`
 - Progress -> `PROGRESS_INDICATOR`
 - Group box -> `GROUP`
@@ -140,7 +154,7 @@
 - Tab control -> `TAB_LIST`
 - Tab item -> synthetic `TAB`
 
-## Next Milestone: Collection Correctness
+## Next Milestone: Validate Remaining Collection Edges
 
 - Keep this tranche on the existing ABI surface: `selected`, `multiselectable`, `active_descendant`, collection metadata, scroll metadata, and row/column metadata are already the compatibility boundary.
 - Preserve the current focus contract:
@@ -148,31 +162,13 @@
   - report lists focus grid cells and retain the intended report column;
   - active rows stay exported even when large or owner-data collections use ranged export;
   - snapshots must never reference a synthetic node that is absent from the same snapshot.
-- Extend validation coverage before widening the model:
-  - multiselect collections;
-  - a large owner-data report list that forces ranged export and offscreen-focus handling.
-- Tighten only the collection behaviors that validation proves weak: multiselect state/event fidelity, owner-data/ranged-export stability, row/cell action routing, and safe focus fallback when an intended synthetic target cannot be exported.
+- Validate the still-risky collection paths before widening the model:
+  - multiselect collection state/event fidelity;
+  - large owner-data report lists that force ranged export and offscreen-focus handling;
+  - row/cell action routing;
+  - safe focus fallback when an intended synthetic target cannot be exported.
+- Tighten only the behaviors that still reproduce against the current source; recent follow-up fixes already cover tree expansion refreshes, collapsed-combo selection export, unfocused-combo selection noise, and one-based collection metadata.
 - Treat the direct AT-SPI branch as concluded research, not the implementation path to extend.
-
-## Completed: OSARA Announcement Extension API
-
-- Linux SWELL now exposes a provider-owned announcement hook through the existing extension mechanism:
-  - `SWELL_ExtendedAPI("ACCESSIBILITY_ANNOUNCER", NULL)` returns `void (*)(const char *utf8_message, int interrupt)` when the GDK AccessKit provider is built;
-  - builds without AccessKit leave the hook unavailable, which lets OSARA treat presence as the capability boundary;
-  - the backend-neutral hook name keeps OSARA independent of AccessKit and Rust shim internals.
-- Announcement delivery stays inside SWELL’s existing AccessKit provider:
-  - the C++↔Rust snapshot ABI now carries append-only live-region metadata for `Live::Polite` / `Live::Assertive`;
-  - `interrupt == 0` maps to polite, nonzero maps to assertive;
-  - each accepted announcement creates one synthetic non-focusable live-region child with a fresh synthetic ID, so repeated identical strings still emit while only the newest node remains in the rebuilt tree;
-  - announcements prefer the focused live top-level window and fall back to another live provider window; null/empty messages or lack of a live target are safe no-ops.
-- Manual harness support now exists in the sample app:
-  - polite and assertive announcement menu actions are available;
-  - invoking the polite action repeatedly exercises duplicate-string delivery.
-- Verified:
-  - `make -C WDL/swell -j2`;
-  - `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`.
-- Still worth doing manually:
-  - Orca verification with `SWELL_ACCESSKIT_DEBUG=1` enabled to confirm speech, repeated-message delivery, and unchanged normal focus behavior.
 
 ## Deferred Work
 
@@ -180,13 +176,13 @@
   - Buttons, checkboxes, radio buttons, group boxes, and static-label/control pairs can derive access keys from `&` mnemonics in SWELL titles or associated static labels.
   - AccessKit already has `access_key` plumbing through the C ABI and Rust shim, so this should mostly be C++ extraction/association work.
   - The same pass should verify whether Alt+mnemonic dispatch is complete for dialog controls on Linux.
-- Multiline edit text geometry and line navigation semantics.
+- Richer multiline edit navigation semantics beyond the current per-line text-run export.
 - Rich text structure.
 - Incremental AccessKit tree diffs.
 - Slider arrow-key behavior as a separate SWELL widget/keyboard task.
 - AT-SPI cache interface support, if the recurring `/org/a11y/atspi/cache` warning proves behaviorally significant.
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
-- Manual AT-SPI/Orca verification of menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
+- Manual AT-SPI/Orca verification of live announcements, menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
 - Richer selection metadata beyond the current ABI, if validation shows it is needed after this collection-hardening pass.
 
 ## Validation
@@ -203,10 +199,10 @@ cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml
 make -C WDL/swell/sample_project
 ```
 
-- SWELL build:
+- SWELL debug build:
 
 ```sh
-make -C WDL/swell -j2
+make -C WDL/swell DEBUG=1 -j2
 ```
 
 - Whitespace check:
@@ -240,6 +236,9 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - `git diff --check` passed; Git warned that `WDL/swell/sample_project/res.rc` will be CRLF-normalized when Git touches it.
 - `make -C WDL/swell DEBUG=1` passed after menu, label, list/tree/tab, and pre-dispatch key handling changes.
 - `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml` passed after the same changes.
+- Live-region announcement tests passed after the provider-owned announcement work.
+- Multiline text now exports one synthetic text run per rendered line.
+- Tree expansion now schedules fresh accessibility snapshots, collapsed combos preserve their selected synthetic option, unfocused combos avoid noisy selected descendants, and the Rust shim normalizes one-based collection metadata before export.
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 - The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
 
