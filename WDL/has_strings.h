@@ -236,7 +236,7 @@ WDL_HASSTRINGS_EXPORT bool WDL_hasStringsEx2(const char **name_list, int name_li
   {
     const char *n=lp->gettoken_str(x);
     
-    if (n[0] == '(' && !n[1] && !lp->gettoken_quotingchar(x))
+    if (!strcmp(n,"(") && !lp->gettoken_quotingchar(x))
     {
       if (!(matched_local&1))
       {
@@ -250,7 +250,7 @@ WDL_HASSTRINGS_EXPORT bool WDL_hasStringsEx2(const char **name_list, int name_li
 
       PUSH_STACK(0);
     }
-    else if (n[0] == ')' && !n[1] && stacktop && !lp->gettoken_quotingchar(x))
+    else if (!strcmp(n,")") && stacktop && !lp->gettoken_quotingchar(x))
     {
       if (POP_STACK()&0x10)
       {
