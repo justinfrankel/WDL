@@ -7,6 +7,7 @@
 - The sibling AccessKit dependency is still expected at `../accesskit`.
 - Phase 2 text semantics and AT-SPI keyboard event forwarding have been implemented.
 - Menu, combo-box, list/listview, tree, tab, and label-relation AccessKit modeling has been committed.
+- The production AccessKit path now also includes collection/focus hardening through `8681beee`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, and shim transition logging.
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
@@ -18,6 +19,16 @@
 - Menu/combo coverage commit: `12234282` (`add AccessKit menu and combo coverage`)
 - Menu, label, list/tree/tab, and debug-build improvements commit: `4ff08a4e` (`Improve SWELL AccessKit menus and labels`)
 - Pre-dispatch menu-bar key handling commit: `7d312add` (`Swallow menu bar navigation keys in SWELL`)
+- Collection/focus hardening commits:
+  - `3eb94421` (`Keep AccessKit collection focus exported`)
+  - `786e2677` (`Use active descendant focus for AccessKit lists`)
+  - `9ae40211` (`Log AccessKit debug snapshots to temp file`)
+  - `a671308e` (`Keep adjacent AccessKit list rows exported`)
+  - `059193c7` (`Log AccessKit shim update transitions`)
+  - `57dd77cf` (`Export SWELL list boxes to AccessKit`)
+  - `33ef8704` (`Label AccessKit grid rows`)
+  - `783b48b2` (`Focus AccessKit grid cells in report lists`)
+  - `8681beee` (`Track AccessKit grid cell focus columns`)
 - Sibling dependency branch: `../accesskit` branch `swell-unix-activation-fix`
 - Sibling dependency commit: `f4778b696747628ea213d10f57c078c23ca0ae90`
 
@@ -129,6 +140,20 @@
 - Tab control -> `TAB_LIST`
 - Tab item -> synthetic `TAB`
 
+## Next Milestone: Collection Correctness
+
+- Keep this tranche on the existing ABI surface: `selected`, `multiselectable`, `active_descendant`, collection metadata, scroll metadata, and row/column metadata are already the compatibility boundary.
+- Preserve the current focus contract:
+  - list/listbox/tree/tab containers expose usable descendants;
+  - report lists focus grid cells and retain the intended report column;
+  - active rows stay exported even when large or owner-data collections use ranged export;
+  - snapshots must never reference a synthetic node that is absent from the same snapshot.
+- Extend validation coverage before widening the model:
+  - multiselect collections;
+  - a large owner-data report list that forces ranged export and offscreen-focus handling.
+- Tighten only the collection behaviors that validation proves weak: multiselect state/event fidelity, owner-data/ranged-export stability, row/cell action routing, and safe focus fallback when an intended synthetic target cannot be exported.
+- Treat the direct AT-SPI branch as concluded research, not the implementation path to extend.
+
 ## Deferred Work
 
 - Broader access-key exposure beyond menu items:
@@ -142,7 +167,7 @@
 - AT-SPI cache interface support, if the recurring `/org/a11y/atspi/cache` warning proves behaviorally significant.
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
 - Manual AT-SPI/Orca verification of menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
-- Multiselect list/grid selection details and large owner-data collection performance tuning.
+- Richer selection metadata beyond the current ABI, if validation shows it is needed after this collection-hardening pass.
 
 ## Validation
 
@@ -156,6 +181,12 @@ cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml
 
 ```sh
 make -C WDL/swell/sample_project
+```
+
+- SWELL build:
+
+```sh
+make -C WDL/swell -j2
 ```
 
 - Whitespace check:
@@ -190,6 +221,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - `make -C WDL/swell DEBUG=1` passed after menu, label, list/tree/tab, and pre-dispatch key handling changes.
 - `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml` passed after the same changes.
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
+- The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
 
 ## Sample App Coverage
 
@@ -202,6 +234,10 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - The sample app now includes:
   - a dropdown-list combo with selected value
   - an editable combo with selectable/editable text
+  - a single-select listbox
+  - a multiselect listbox with independent selected rows
+  - a report list
+  - a 1500-row owner-data report list with initial focus near the end of the collection
 
 ## Assumptions
 
@@ -209,3 +245,4 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - The sibling `../accesskit` checkout remains the active dependency for this branch.
 - Single-line `Edit` controls and editable combo boxes are the fully modeled text input targets in this phase.
 - `NOACCESSKIT=1` remains the escape hatch for Linux builds that should exclude AccessKit.
+- The AccessKit branch is the production path; direct AT-SPI work is retained as an archived experiment.
