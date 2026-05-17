@@ -255,9 +255,9 @@ static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
   return swell_accesskit_indexed_id(hwnd, SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION, index + 1);
 }
 
-static uint64_t swell_accesskit_announcement_id_for_serial(uint64_t serial)
+static uint64_t swell_accesskit_announcement_id_for_hwnd(HWND hwnd)
 {
-  return SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT | (serial & 0x0fffffffffffffffull);
+  return SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT | swell_accesskit_pointer_bits(hwnd);
 }
 
 static int swell_accesskit_get_listview_focus_column(HWND hwnd, const swell_accesskit_listview_info *info, int row)
@@ -459,8 +459,7 @@ static int swell_accesskit_count_nodes(HWND hwnd)
         count += 1 + swell_accesskit_count_accessible_menu_items(menu);
       }
     }
-    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
-      ++count;
+    ++count;
   }
   return count;
 }
@@ -1006,8 +1005,7 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
         if (menu_hwnd) node->children_storage.push_back(swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd));
       }
     }
-    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
-      node->children_storage.push_back(g_accesskit_announcement_id);
+    node->children_storage.push_back(swell_accesskit_announcement_id_for_hwnd(hwnd));
   }
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
@@ -1015,14 +1013,17 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   if (hwnd == focused) node->pod.action_mask |= 0;
 }
 
-static void swell_accesskit_populate_announcement_node(SWELL_AccessKitOwnedNode *node)
+static void swell_accesskit_populate_announcement_node(HWND root, SWELL_AccessKitOwnedNode *node)
 {
-  if (!node || !g_accesskit_announcement_id || g_accesskit_announcement_text.empty()) return;
+  if (!root || !node) return;
   memset(&node->pod,0,sizeof(node->pod));
-  node->pod.id = g_accesskit_announcement_id;
+  node->pod.id = swell_accesskit_announcement_id_for_hwnd(root);
   node->pod.role = SWELL_ACCESSKIT_ROLE_LABEL;
-  node->pod.live = g_accesskit_announcement_live;
-  swell_accesskit_copy_string(&node->pod.label,&node->label_storage,g_accesskit_announcement_text.c_str());
+  if (root == g_accesskit_announcement_root && !g_accesskit_announcement_text.empty())
+  {
+    node->pod.live = g_accesskit_announcement_live;
+    swell_accesskit_copy_string(&node->pod.label,&node->label_storage,g_accesskit_announcement_text.c_str());
+  }
 }
 
 static void swell_accesskit_populate_text_run_node(HWND hwnd, SWELL_AccessKitOwnedNode *node)
@@ -1663,11 +1664,8 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
         }
       }
     }
-    if (hwnd == g_accesskit_announcement_root && g_accesskit_announcement_id && !g_accesskit_announcement_text.empty())
-    {
-      snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
-      swell_accesskit_populate_announcement_node(&snapshot->nodes.back());
-    }
+    snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+    swell_accesskit_populate_announcement_node(hwnd, &snapshot->nodes.back());
   }
 }
 
@@ -2271,7 +2269,8 @@ void swell_accesskit_announce(const char *utf8_message, int interrupt)
   g_accesskit_announcement_root = target->hwnd;
   g_accesskit_announcement_text = utf8_message;
   g_accesskit_announcement_live = interrupt ? SWELL_ACCESSKIT_LIVE_ASSERTIVE : SWELL_ACCESSKIT_LIVE_POLITE;
-  g_accesskit_announcement_id = swell_accesskit_announcement_id_for_serial(++g_accesskit_announcement_serial);
+  ++g_accesskit_announcement_serial;
+  g_accesskit_announcement_id = swell_accesskit_announcement_id_for_hwnd(target->hwnd);
   target->dirty = true;
 }
 
