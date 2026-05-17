@@ -22,6 +22,7 @@ This repository is a WDL/SWELL checkout with active Linux SWELL AccessKit work. 
 
 ## Build And Verification
 
+- While developing, always build SWELL with debug symbols so crashes can be inspected directly in gdb.
 - Build SWELL with:
 
 ```bash
