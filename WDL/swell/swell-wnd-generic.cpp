@@ -5527,6 +5527,7 @@ struct treeViewState
             if (!SendMessage(GetParent(hwnd),WM_NOTIFY,hwnd->m_id,(LPARAM)&nmhdr))
             {
               m_sel->m_state &= ~TVIS_EXPANDED;
+              swell_accesskit_window_changed(hwnd);
               return 2;
             }
             else
@@ -5559,6 +5560,7 @@ struct treeViewState
             if (!SendMessage(GetParent(hwnd),WM_NOTIFY,hwnd->m_id,(LPARAM)&nmhdr))
             {
               m_sel->m_state |= TVIS_EXPANDED;
+              swell_accesskit_window_changed(hwnd);
               return 2;
             }
             else
@@ -5863,6 +5865,7 @@ static LRESULT treeViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 if (!SendMessage(GetParent(hwnd),WM_NOTIFY,hwnd->m_id,(LPARAM)&nmhdr))
                 {
                   hit->m_state ^= TVIS_EXPANDED;
+                  swell_accesskit_window_changed(hwnd);
                   InvalidateRect(hwnd,NULL,FALSE);
                 }
                 return 0;
@@ -8467,6 +8470,7 @@ BOOL TreeView_Expand(HWND hwnd, HTREEITEM item, UINT flag)
   else if (flag == TVE_COLLAPSE) item->m_state &= ~TVIS_EXPANDED;
   else if (flag == TVE_TOGGLE) item->m_state ^= TVIS_EXPANDED;
   
+  swell_accesskit_window_changed(hwnd);
   InvalidateRect(hwnd,NULL,FALSE);
   return TRUE;
 }
