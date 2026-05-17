@@ -26,7 +26,7 @@ This repository is a WDL/SWELL checkout with active Linux SWELL AccessKit work. 
 - Build SWELL with:
 
 ```bash
-make -C WDL/swell -j2
+make -C WDL/swell DEBUG=1 -j2
 ```
 
 - Build the Rust AccessKit shim directly when Rust-side changes are involved:
