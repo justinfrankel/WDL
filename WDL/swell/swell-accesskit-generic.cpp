@@ -620,6 +620,15 @@ static uint32_t swell_accesskit_role_for_hwnd(HWND hwnd)
   return SWELL_ACCESSKIT_ROLE_UNKNOWN;
 }
 
+static bool swell_accesskit_role_takes_direct_mnemonic(uint32_t role)
+{
+  return role == SWELL_ACCESSKIT_ROLE_BUTTON ||
+      role == SWELL_ACCESSKIT_ROLE_DEFAULT_BUTTON ||
+      role == SWELL_ACCESSKIT_ROLE_CHECK_BOX ||
+      role == SWELL_ACCESSKIT_ROLE_RADIO_BUTTON ||
+      role == SWELL_ACCESSKIT_ROLE_GROUP;
+}
+
 static void swell_accesskit_copy_string(swell_accesskit_string_ref *dest, std::string *storage, const char *value)
 {
   if (!dest || !storage) return;
@@ -637,20 +646,13 @@ static void swell_accesskit_copy_std_string(swell_accesskit_string_ref *dest, st
   swell_accesskit_copy_string(dest, storage, value.c_str());
 }
 
-static bool swell_accesskit_menu_item_is_string(const MENUITEMINFO *item)
-{
-  return item && (item->fType == MFT_STRING || item->fType == MFT_RADIOCHECK);
-}
-
-static std::string swell_accesskit_menu_label_without_mnemonic(const char *raw, std::string *access_key, std::string *shortcut)
+static std::string swell_accesskit_label_without_mnemonic_until(const char *raw, const char *end, std::string *access_key)
 {
   if (access_key) access_key->clear();
-  if (shortcut) shortcut->clear();
   std::string label;
   if (!raw) return label;
+  if (!end) end = raw + strlen(raw);
 
-  const char *tab = strchr(raw, '\t');
-  const char *end = tab ? tab : raw + strlen(raw);
   for (const char *p = raw; p < end && *p; ++p)
   {
     if (*p == '&')
@@ -671,6 +673,37 @@ static std::string swell_accesskit_menu_label_without_mnemonic(const char *raw, 
       label.push_back(*p);
     }
   }
+  return label;
+}
+
+static std::string swell_accesskit_label_without_mnemonic(const char *raw, std::string *access_key)
+{
+  return swell_accesskit_label_without_mnemonic_until(raw, NULL, access_key);
+}
+
+static void swell_accesskit_set_access_key_from_mnemonic(SWELL_AccessKitOwnedNode *node, const char *raw)
+{
+  if (!node || node->pod.access_key.ptr) return;
+  std::string access_key;
+  swell_accesskit_label_without_mnemonic(raw, &access_key);
+  if (!access_key.empty())
+    swell_accesskit_copy_std_string(&node->pod.access_key, &node->access_key_storage, access_key);
+}
+
+static bool swell_accesskit_menu_item_is_string(const MENUITEMINFO *item)
+{
+  return item && (item->fType == MFT_STRING || item->fType == MFT_RADIOCHECK);
+}
+
+static std::string swell_accesskit_menu_label_without_mnemonic(const char *raw, std::string *access_key, std::string *shortcut)
+{
+  if (access_key) access_key->clear();
+  if (shortcut) shortcut->clear();
+  if (!raw) return std::string();
+
+  const char *tab = strchr(raw, '\t');
+  const char *end = tab ? tab : raw + strlen(raw);
+  std::string label = swell_accesskit_label_without_mnemonic_until(raw, end, access_key);
   if (tab && shortcut) shortcut->assign(tab + 1);
   return label;
 }
@@ -1005,9 +1038,22 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   const char *title = hwnd->m_title.Get();
   if (title && (title[0] || node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT))
   {
-    if (node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT ||
-        node->pod.role == SWELL_ACCESSKIT_ROLE_COMBO_BOX || node->pod.role == SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX ||
-        node->pod.role == SWELL_ACCESSKIT_ROLE_LABEL)
+    if (node->pod.role == SWELL_ACCESSKIT_ROLE_LABEL)
+    {
+      std::string access_key;
+      const std::string label = swell_accesskit_label_without_mnemonic(title, &access_key);
+      swell_accesskit_copy_std_string(&node->pod.value, &node->value_storage, label);
+    }
+    else if (swell_accesskit_role_takes_direct_mnemonic(node->pod.role))
+    {
+      std::string access_key;
+      const std::string label = swell_accesskit_label_without_mnemonic(title, &access_key);
+      swell_accesskit_copy_std_string(&node->pod.label, &node->label_storage, label);
+      if (!access_key.empty())
+        swell_accesskit_copy_std_string(&node->pod.access_key, &node->access_key_storage, access_key);
+    }
+    else if (node->pod.role == SWELL_ACCESSKIT_ROLE_TEXT_INPUT || node->pod.role == SWELL_ACCESSKIT_ROLE_MULTILINE_TEXT_INPUT ||
+        node->pod.role == SWELL_ACCESSKIT_ROLE_COMBO_BOX || node->pod.role == SWELL_ACCESSKIT_ROLE_EDITABLE_COMBO_BOX)
       swell_accesskit_copy_string(&node->pod.value, &node->value_storage, title);
     else
       swell_accesskit_copy_string(&node->pod.label, &node->label_storage, title);
@@ -1434,6 +1480,7 @@ static void swell_accesskit_apply_nearby_labels(SWELL_AccessKitOwnedSnapshot *sn
     if (sibling_label)
     {
       swell_accesskit_set_labelled_by(node,swell_accesskit_node_id_for_hwnd(sibling_label));
+      swell_accesskit_set_access_key_from_mnemonic(node,sibling_label->m_title.Get());
       continue;
     }
 
@@ -1485,9 +1532,15 @@ static void swell_accesskit_apply_nearby_labels(SWELL_AccessKitOwnedSnapshot *sn
       }
     }
     if (best_same_row >= 0)
+    {
       swell_accesskit_set_labelled_by(node,snapshot->nodes[(size_t)best_same_row].pod.id);
+      swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_same_row].hwnd->m_title.Get());
+    }
     else if (best_above >= 0)
+    {
       swell_accesskit_set_labelled_by(node,snapshot->nodes[(size_t)best_above].pod.id);
+      swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_above].hwnd->m_title.Get());
+    }
   }
 }
 

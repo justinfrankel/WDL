@@ -68,17 +68,17 @@ FONT 8, "MS Sans Serif"
 BEGIN
     LTEXT           "Status",IDC_STATIC,4,6,24,8
     LTEXT           "AccessKit demo ready",IDC_LASTMSG,34,6,182,12
-    LTEXT           "Edit value",IDC_STATIC,4,26,38,8
+    LTEXT           "&Edit value",IDC_STATIC,4,26,38,8
     EDITTEXT        IDC_EDIT1,48,24,104,14,ES_AUTOHSCROLL | WS_TABSTOP
-    DEFPUSHBUTTON   "Update label",IDC_BUTTON1,158,23,60,14
-    CHECKBOX        "Accessible checkbox",IDC_CHECK1,4,46,102,10
-    LTEXT           "Dropdown combo",IDC_STATIC,4,66,56,8
+    DEFPUSHBUTTON   "&Update label",IDC_BUTTON1,158,23,60,14
+    CHECKBOX        "Accessible &checkbox",IDC_CHECK1,4,46,102,10
+    LTEXT           "&Dropdown combo",IDC_STATIC,4,66,56,8
     COMBOBOX        IDC_COMBO_DROPDOWN,66,64,112,80,CBS_DROPDOWNLIST | WS_TABSTOP
-    LTEXT           "Editable combo",IDC_STATIC,4,86,52,8
+    LTEXT           "E&ditable combo",IDC_STATIC,4,86,52,8
     COMBOBOX        IDC_COMBO_EDITABLE,66,84,112,80,CBS_DROPDOWN | WS_TABSTOP
-    LTEXT           "Slider",IDC_STATIC,4,108,24,8
+    LTEXT           "S&lider",IDC_STATIC,4,108,24,8
     CONTROL         "Demo slider",IDC_SLIDER1,"msctls_trackbar32",WS_TABSTOP,66,104,112,18
-    LTEXT           "Progress",IDC_STATIC,4,128,34,8
+    LTEXT           "Pro&gress",IDC_STATIC,4,128,34,8
     CONTROL         "",IDC_PROGRESS1,"msctls_progress32",0,66,126,112,10
     LTEXT           "List box",IDC_STATIC,4,148,34,8
     LISTBOX         IDC_LISTBOX1,66,146,112,42,WS_TABSTOP | WS_BORDER
