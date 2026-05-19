@@ -7,7 +7,7 @@
 - The sibling AccessKit dependency is still expected at `../accesskit`.
 - Phase 2 text semantics and AT-SPI keyboard event forwarding have been implemented.
 - Menu, combo-box, list/listview, tree, tab, and label-relation AccessKit modeling has been committed.
-- The production AccessKit path now also includes collection/focus hardening through `5c62f243`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, shim transition logging, stale-root protection, combo selection cleanup, one-based collection metadata normalization, and tree refreshes on expansion.
+- The production AccessKit path now also includes collection/focus hardening through `87085b58`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, shim transition logging, stale-root protection, combo selection cleanup, one-based collection metadata normalization, tree refreshes on expansion, and snapshot reference validation/fallbacks.
 - Provider-owned live announcements, persistent live-region export, duplicate-announcement handling, hidden internal popup windows, and multiline text-run export are implemented on the current branch.
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - Build artifacts are ignored by the repo root `.gitignore`.
@@ -42,6 +42,7 @@
   - `2bedced7` (`swell: preserve collapsed combo selection state`)
   - `b2357349` (`accesskit shim: normalize one-based collection metadata`)
   - `5c62f243` (`swell: refresh tree accessibility on expansion`)
+  - `87085b58` (`swell: validate AccessKit snapshot references`)
 - Sibling dependency branch: `../accesskit` branch `swell-unix-activation-fix`
 - Sibling dependency commit: `f4778b696747628ea213d10f57c078c23ca0ae90`
 
@@ -154,7 +155,7 @@
 - Tab control -> `TAB_LIST`
 - Tab item -> synthetic `TAB`
 
-## Next Milestone: Validate Remaining Collection Edges
+## Next Milestone: Manual Collection Edge Validation
 
 - Keep this tranche on the existing ABI surface: `selected`, `multiselectable`, `active_descendant`, collection metadata, scroll metadata, and row/column metadata are already the compatibility boundary.
 - Preserve the current focus contract:
@@ -162,11 +163,13 @@
   - report lists focus grid cells and retain the intended report column;
   - active rows stay exported even when large or owner-data collections use ranged export;
   - snapshots must never reference a synthetic node that is absent from the same snapshot.
-- Validate the still-risky collection paths before widening the model:
+- Basic list/listbox navigation appears stable enough to treat as regression coverage rather than redesign work.
+- Validate the still-risky collection paths manually before widening the model:
   - multiselect collection state/event fidelity;
   - large owner-data report lists that force ranged export and offscreen-focus handling;
   - row/cell action routing;
   - safe focus fallback when an intended synthetic target cannot be exported.
+- `87085b58` adds a debug-only integrity pass before each tree commit. It verifies focus IDs, active descendants, children, and labelled-by references, omits invalid child/label references, and falls back invalid focus/active-descendant targets to exported widget nodes.
 - Tighten only the behaviors that still reproduce against the current source; recent follow-up fixes already cover tree expansion refreshes, collapsed-combo selection export, unfocused-combo selection noise, and one-based collection metadata.
 - Treat the direct AT-SPI branch as concluded research, not the implementation path to extend.
 
@@ -239,6 +242,8 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - Live-region announcement tests passed after the provider-owned announcement work.
 - Multiline text now exports one synthetic text run per rendered line.
 - Tree expansion now schedules fresh accessibility snapshots, collapsed combos preserve their selected synthetic option, unfocused combos avoid noisy selected descendants, and the Rust shim normalizes one-based collection metadata before export.
+- Snapshot reference validation now guards tree commits against missing focus, active-descendant, child, and labelled-by targets; stale synthetic actions are consumed safely and logged when `SWELL_ACCESSKIT_DEBUG=1`.
+- `make -C WDL/swell DEBUG=1 -j2`, `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, `make -C WDL/swell/sample_project`, `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, and `git diff --check` passed after adding snapshot reference validation.
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 - The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
 
