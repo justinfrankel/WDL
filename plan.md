@@ -155,7 +155,7 @@
 - Tab control -> `TAB_LIST`
 - Tab item -> synthetic `TAB`
 
-## Next Milestone: Manual Collection Edge Validation
+## Completed Milestone: Manual Collection Edge Validation
 
 - Keep this tranche on the existing ABI surface: `selected`, `multiselectable`, `active_descendant`, collection metadata, scroll metadata, and row/column metadata are already the compatibility boundary.
 - Preserve the current focus contract:
@@ -164,13 +164,13 @@
   - active rows stay exported even when large or owner-data collections use ranged export;
   - snapshots must never reference a synthetic node that is absent from the same snapshot.
 - Basic list/listbox navigation appears stable enough to treat as regression coverage rather than redesign work.
-- Validate the still-risky collection paths manually before widening the model:
+- Manual validation covered the still-risky collection paths before widening the model:
   - multiselect collection state/event fidelity;
   - large owner-data report lists that force ranged export and offscreen-focus handling;
   - row/cell action routing;
   - safe focus fallback when an intended synthetic target cannot be exported.
 - `87085b58` adds a debug-only integrity pass before each tree commit. It verifies focus IDs, active descendants, children, and labelled-by references, omits invalid child/label references, and falls back invalid focus/active-descendant targets to exported widget nodes.
-- Tighten only the behaviors that still reproduce against the current source; recent follow-up fixes already cover tree expansion refreshes, collapsed-combo selection export, unfocused-combo selection noise, and one-based collection metadata.
+- No source change was needed from this pass: the sample harness exported valid collection references, AT-SPI action routing succeeded for representative collection nodes, and debug logs showed no missing-reference or fallback diagnostics.
 - Treat the direct AT-SPI branch as concluded research, not the implementation path to extend.
 
 ## Deferred Work
@@ -244,6 +244,8 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - Tree expansion now schedules fresh accessibility snapshots, collapsed combos preserve their selected synthetic option, unfocused combos avoid noisy selected descendants, and the Rust shim normalizes one-based collection metadata before export.
 - Snapshot reference validation now guards tree commits against missing focus, active-descendant, child, and labelled-by targets; stale synthetic actions are consumed safely and logged when `SWELL_ACCESSKIT_DEBUG=1`.
 - `make -C WDL/swell DEBUG=1 -j2`, `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, `make -C WDL/swell/sample_project`, `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, and `git diff --check` passed after adding snapshot reference validation.
+- Manual collection edge validation passed with `SWELL_ACCESSKIT_DEBUG=1`: multiselect listbox state changed through AT-SPI actions, report grid row/cell focus and click actions succeeded, owner-data row 1496 stayed exported and focusable inside the ranged export, tree/tab action routing stayed valid, and `/tmp/swell-accesskit-debug.log` showed no missing-reference, stale-target, invalid-reference, or fallback diagnostics.
+- `make -C WDL/swell DEBUG=1 -j2`, `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, `make -C WDL/swell/sample_project DEBUG=1`, `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, and `git diff --check` passed after manual collection edge validation.
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 - The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
 
