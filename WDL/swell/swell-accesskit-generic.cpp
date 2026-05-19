@@ -31,6 +31,7 @@
 #include "../wdlutf8.h"
 
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,6 +96,26 @@ static std::string g_accesskit_announcement_export_text;
 
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
+static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint64_t node_id, int *index_out, int *column_out);
+
+static void swell_accesskit_debug_log(const char *fmt, ...)
+{
+  if (!g_accesskit_debug || !fmt) return;
+
+  char buf[1024];
+  va_list ap;
+  va_start(ap,fmt);
+  vsnprintf(buf,sizeof(buf),fmt,ap);
+  va_end(ap);
+
+  fprintf(stderr, "%s\n", buf);
+  FILE *fp = fopen(g_accesskit_debug_file_path, "a");
+  if (fp)
+  {
+    fprintf(fp, "%s\n", buf);
+    fclose(fp);
+  }
+}
 
 static bool swell_accesskit_is_internal_menu_window(HWND hwnd)
 {
@@ -1865,6 +1886,107 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
   }
 }
 
+static bool swell_accesskit_snapshot_has_node_id(const SWELL_AccessKitOwnedSnapshot *snapshot, uint64_t node_id)
+{
+  if (!snapshot || !node_id) return false;
+  for (size_t i = 0; i < snapshot->nodes.size(); ++i)
+    if (snapshot->nodes[i].pod.id == node_id)
+      return true;
+  return false;
+}
+
+static void swell_accesskit_debug_log_missing_reference(HWND hwnd, const char *kind, uint64_t owner_id, uint64_t missing_id)
+{
+  if (!g_accesskit_debug) return;
+
+  swell_accesskit_listview_info info;
+  swell_accesskit_collection_range range;
+  if (swell_accesskit_get_listview_info(hwnd,&info) && swell_accesskit_get_listview_export_range(hwnd,&range))
+  {
+    swell_accesskit_debug_log("SWELL AccessKit missing %s target owner_hwnd=%p owner_id=0x%llx missing_id=0x%llx list_count=%d range=%d+%d focused=%d selected=%d report=%d owner_data=%d",
+        kind ? kind : "reference",
+        hwnd,
+        (unsigned long long)owner_id,
+        (unsigned long long)missing_id,
+        info.item_count,
+        range.first,
+        range.count,
+        info.focused_index,
+        info.selected_index,
+        info.is_report ? 1 : 0,
+        info.is_owner_data ? 1 : 0);
+    return;
+  }
+
+  swell_accesskit_debug_log("SWELL AccessKit missing %s target owner_hwnd=%p owner_id=0x%llx missing_id=0x%llx",
+      kind ? kind : "reference",
+      hwnd,
+      (unsigned long long)owner_id,
+      (unsigned long long)missing_id);
+}
+
+static void swell_accesskit_validate_node_references(SWELL_AccessKitOwnedSnapshot *snapshot, SWELL_AccessKitOwnedNode *node)
+{
+  if (!snapshot || !node) return;
+
+  if (node->pod.active_descendant && !swell_accesskit_snapshot_has_node_id(snapshot,node->pod.active_descendant))
+  {
+    swell_accesskit_debug_log_missing_reference(node->hwnd,"active_descendant",node->pod.id,node->pod.active_descendant);
+    node->pod.active_descendant = node->pod.id;
+  }
+
+  size_t valid_count = 0;
+  for (size_t i = 0; i < node->children_storage.size(); ++i)
+  {
+    const uint64_t child_id = node->children_storage[i];
+    if (swell_accesskit_snapshot_has_node_id(snapshot,child_id))
+      node->children_storage[valid_count++] = child_id;
+    else
+      swell_accesskit_debug_log_missing_reference(node->hwnd,"child",node->pod.id,child_id);
+  }
+  node->children_storage.resize(valid_count);
+  node->pod.child_count = node->children_storage.size();
+  node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+
+  valid_count = 0;
+  for (size_t i = 0; i < node->labelled_by_storage.size(); ++i)
+  {
+    const uint64_t label_id = node->labelled_by_storage[i];
+    if (swell_accesskit_snapshot_has_node_id(snapshot,label_id))
+      node->labelled_by_storage[valid_count++] = label_id;
+    else
+      swell_accesskit_debug_log_missing_reference(node->hwnd,"labelled_by",node->pod.id,label_id);
+  }
+  node->labelled_by_storage.resize(valid_count);
+  node->pod.labelled_by_count = node->labelled_by_storage.size();
+  node->pod.labelled_by = node->labelled_by_storage.empty() ? NULL : node->labelled_by_storage.data();
+}
+
+static void swell_accesskit_validate_snapshot_references(HWND root, SWELL_AccessKitOwnedSnapshot *snapshot)
+{
+  if (!snapshot) return;
+
+  for (size_t i = 0; i < snapshot->nodes.size(); ++i)
+    swell_accesskit_validate_node_references(snapshot,&snapshot->nodes[i]);
+
+  if (!swell_accesskit_snapshot_has_node_id(snapshot,snapshot->focus_id))
+  {
+    uint64_t fallback_id = snapshot->root_id;
+    int index = -1;
+    int column = -1;
+    HWND owner = swell_accesskit_find_collection_for_synthetic_node(root,snapshot->focus_id,&index,&column);
+    if (owner)
+    {
+      const uint64_t owner_id = swell_accesskit_node_id_for_hwnd(owner);
+      if (swell_accesskit_snapshot_has_node_id(snapshot,owner_id))
+        fallback_id = owner_id;
+    }
+
+    swell_accesskit_debug_log_missing_reference(owner ? owner : root,"focus_id",fallback_id,snapshot->focus_id);
+    snapshot->focus_id = fallback_id;
+  }
+}
+
 static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapshot *snapshot)
 {
   if (!snapshot || !root || root->m_hashaddestroy || !root->m_visible) return false;
@@ -1919,6 +2041,8 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
     else if (menu_hwnd)
       snapshot->focus_id = swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd);
   }
+
+  swell_accesskit_validate_snapshot_references(root,snapshot);
 
   snapshot->exported_nodes.resize(snapshot->nodes.size());
   size_t i;
@@ -2132,7 +2256,11 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
     int index = -1;
     int column = -1;
     HWND target = swell_accesskit_find_collection_for_synthetic_node(state->hwnd,action->target_node,&index,&column);
-    if (!target) return true;
+    if (!target)
+    {
+      swell_accesskit_debug_log_missing_reference(state->hwnd,"action_target",state->hwnd ? swell_accesskit_node_id_for_hwnd(state->hwnd) : 0,action->target_node);
+      return true;
+    }
     if (swell_accesskit_hwnd_is_listview(target) && index >= 0)
     {
       if (column >= 0 &&
