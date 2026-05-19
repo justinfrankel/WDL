@@ -43,8 +43,8 @@
   - `b2357349` (`accesskit shim: normalize one-based collection metadata`)
   - `5c62f243` (`swell: refresh tree accessibility on expansion`)
   - `87085b58` (`swell: validate AccessKit snapshot references`)
-- Sibling dependency branch: `../accesskit` branch `swell-unix-activation-fix`
-- Sibling dependency commit: `f4778b696747628ea213d10f57c078c23ca0ae90`
+- Sibling dependency branch: `../accesskit` branch `swell-fixes`
+- Sibling dependency commit: `5124b271a22bd23f27a259b92c2c147a7901e6c4`
 
 ## Implemented Model
 
