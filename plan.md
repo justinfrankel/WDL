@@ -10,6 +10,7 @@
 - The production AccessKit path now also includes collection/focus hardening through `87085b58`: stale-focus guards, visible-range retention around active rows, active-descendant list focus, listbox export, report-row labels, report-grid cell focus with remembered columns, temp-file debug dumps, shim transition logging, stale-root protection, combo selection cleanup, one-based collection metadata normalization, tree refreshes on expansion, and snapshot reference validation/fallbacks.
 - Provider-owned live announcements, persistent live-region export, duplicate-announcement handling, hidden internal popup windows, and multiline text-run export are implemented on the current branch.
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
+- The sibling AccessKit dependency now reports non-menu widget mnemonics to AT-SPI with the conventional Alt modifier while preserving bare posted-menu mnemonics.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
 ## Reproducibility
@@ -44,7 +45,7 @@
   - `5c62f243` (`swell: refresh tree accessibility on expansion`)
   - `87085b58` (`swell: validate AccessKit snapshot references`)
 - Sibling dependency branch: `../accesskit` branch `swell-fixes`
-- Sibling dependency commit: `5124b271a22bd23f27a259b92c2c147a7901e6c4`
+- Sibling dependency commit: `8791d5f7ec4597637172699d95c5fd78c720b7a5`
 
 ## Implemented Model
 
@@ -175,10 +176,7 @@
 
 ## Deferred Work
 
-- Broader access-key exposure beyond menu items:
-  - Buttons, checkboxes, radio buttons, group boxes, and static-label/control pairs can derive access keys from `&` mnemonics in SWELL titles or associated static labels.
-  - AccessKit already has `access_key` plumbing through the C ABI and Rust shim, so this should mostly be C++ extraction/association work.
-  - The same pass should verify whether Alt+mnemonic dispatch is complete for dialog controls on Linux.
+- Verify Linux Alt+mnemonic dispatch for dialog controls against the exported AccessKit access keys.
 - Richer multiline edit navigation semantics beyond the current per-line text-run export.
 - Rich text structure.
 - Incremental AccessKit tree diffs.
@@ -248,6 +246,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - `make -C WDL/swell DEBUG=1 -j2`, `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, `make -C WDL/swell/sample_project DEBUG=1`, `cargo test --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, and `git diff --check` passed after manual collection edge validation.
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 - The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
+- `cargo test -p accesskit_atspi_common` passed in `../accesskit` after adding Alt-modified AT-SPI keybinding strings for non-menu widget mnemonics.
 
 ## Sample App Coverage
 
