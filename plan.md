@@ -12,6 +12,7 @@
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - The sibling AccessKit dependency now reports non-menu widget mnemonics to AT-SPI with the conventional Alt modifier while preserving bare posted-menu mnemonics.
 - SWELL dialog access-key dispatch now handles Alt+mnemonic labels and buttons on Linux, with static-label mnemonics limited to their intended labelled target.
+- Generic SWELL trackbars now support keyboard value changes for arrow, page, Home, and End keys.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
 ## Reproducibility
@@ -47,6 +48,7 @@
   - `87085b58` (`swell: validate AccessKit snapshot references`)
   - `7a13d435` (`swell: handle dialog access keys`)
   - `42e712e5` (`swell: keep dialog mnemonics on intended targets`)
+  - `bc8e1a24` (`Add keyboard control for generic trackbars`)
 - Sibling dependency branch: `../accesskit` branch `swell-fixes`
 - Sibling dependency commit: `8791d5f7ec4597637172699d95c5fd78c720b7a5`
 
@@ -182,7 +184,6 @@
 - Richer multiline edit navigation semantics beyond the current per-line text-run export.
 - Rich text structure.
 - Incremental AccessKit tree diffs.
-- Slider arrow-key behavior as a separate SWELL widget/keyboard task.
 - AT-SPI cache interface support, if the recurring `/org/a11y/atspi/cache` warning proves behaviorally significant.
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
 - Manual AT-SPI/Orca verification of live announcements, menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
@@ -232,7 +233,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - Orca receives all forwarded SWELL key events through the AT-SPI key watcher path.
 - Backspace/Delete receive key watcher context, so Orca can classify text deletion events correctly.
 - Checkbox behavior remained stable during text work.
-- Slider accessibility export remains value-focused; slider keyboard behavior is intentionally deferred.
+- Slider accessibility export remains value-focused; generic trackbars now handle Left/Down, Right/Up, PageDown/PageUp, Home, and End keyboard value changes.
 - Rust shim build passed after the menu/combo ABI extension.
 - Sample app build passed after adding menu and combo coverage.
 - `cargo fmt --check` passed for the Rust shim.
@@ -251,6 +252,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - `cargo test -p accesskit_atspi_common` passed in `../accesskit` after adding Alt-modified AT-SPI keybinding strings for non-menu widget mnemonics.
 - `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, and `git diff --check` passed after tightening dialog mnemonic targets.
 - A timed `SWELL_ACCESSKIT_DEBUG=1` sample launch confirmed the progress indicator keeps its `labelled_by` relation without advertising an unusable access key; interactive Orca keypress coverage remains part of the broader manual AT-SPI pass.
+- `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, and `git diff --check` passed after the generic trackbar keyboard work. An automated AT-SPI/XTest sample pass focused the Demo slider and confirmed Right, Left, Home, End, PageDown, and PageUp changed the exposed value through `5 -> 6 -> 5 -> 0 -> 10 -> 9 -> 10`; the debug log showed no missing, invalid, fallback, or stale AccessKit diagnostics.
 
 ## Sample App Coverage
 
