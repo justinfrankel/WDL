@@ -186,7 +186,7 @@
 - Incremental AccessKit tree diffs.
 - AT-SPI cache interface support, if the recurring `/org/a11y/atspi/cache` warning proves behaviorally significant.
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
-- Manual AT-SPI/Orca verification of live announcements, menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
+- Manual auditory Orca verification of live announcements, menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
 - Richer selection metadata beyond the current ABI, if validation shows it is needed after this collection-hardening pass.
 
 ## Validation
@@ -234,6 +234,17 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - Backspace/Delete receive key watcher context, so Orca can classify text deletion events correctly.
 - Checkbox behavior remained stable during text work.
 - Slider accessibility export remains value-focused; generic trackbars now handle Left/Down, Right/Up, PageDown/PageUp, Home, and End keyboard value changes.
+- 2026-05-20 non-audible AT-SPI/Orca regression pass:
+  - `make -C WDL/swell DEBUG=1 -j2` passed with existing debug-symbol objects already up to date.
+  - `make -C WDL/swell/sample_project DEBUG=1` passed; the sample target is `WDL/swell/sample_project/myapp`.
+  - `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml` passed.
+  - `SWELL_ACCESSKIT_DEBUG=1 ./myapp` launched successfully, exported the sample tree, and wrote a fresh `/tmp/swell-accesskit-debug.log`.
+  - The debug log contained no missing, invalid, fallback, stale, warning, failure, or panic diagnostics from the AccessKit snapshot/reference path.
+  - `python3 tools/atspi_events.py --all-object-events --seconds 7` captured the sample on the AT-SPI bus, including root child registration, focus, bounds changes, and child additions. The helper was run through `python3` because this environment has `dbus_next` installed but does not have `uv`, and the script file is not executable.
+  - A `pyatspi` tree query found the live `myapp` application and verified AT-SPI exposure for the sample frame, tab list/tabs, labelled text entries, dropdown and editable combos, slider, list boxes, report tables, owner-data table, tree, menu bar, and top-level menu items.
+  - AT-SPI component `grabFocus()` succeeded for representative tabs, the slider, the single-line edit, listbox, and tree nodes, and focus changes stayed inside exported AccessKit nodes.
+  - The only warnings seen during `pyatspi` probing were the existing desktop AT-SPI cache-interface warnings for `/org/a11y/atspi/cache`; these are still tracked as deferred cache-interface work and were not emitted by the SWELL debug integrity pass.
+  - Auditory Orca announcement checks and full key-driven interaction coverage remain manual: this execution channel cannot verify spoken output, and it lacks a key-injection tool such as `xdotool`/`xte`.
 - Rust shim build passed after the menu/combo ABI extension.
 - Sample app build passed after adding menu and combo coverage.
 - `cargo fmt --check` passed for the Rust shim.
