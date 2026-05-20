@@ -7423,6 +7423,81 @@ static HWND getNextFocusWindow(HWND hwnd, bool rev, HWND foc_child)
   return ch;
 }
 
+static int dialogAccessKeyFromLabel(const char *p)
+{
+  if (!p) return 0;
+  while (*p)
+  {
+    if (*p++ == '&')
+    {
+      if (*p == '&')
+      {
+        p++;
+      }
+      else if (isalnum_safe(*p))
+      {
+        return toupper_safe(*p);
+      }
+    }
+  }
+  return 0;
+}
+
+static HWND dialogNextFocusableSibling(HWND hwnd)
+{
+  if (!hwnd) return NULL;
+  HWND ch = hwnd->m_next;
+  while (ch)
+  {
+    if (ch->m_wantfocus && ch->m_visible && ch->m_enabled) return ch;
+    ch = ch->m_next;
+  }
+  return NULL;
+}
+
+static void dialogFocusWindow(HWND hwnd)
+{
+  if (!hwnd) return;
+  HWND oldfoc = GetFocus();
+  SetFocus(hwnd);
+  if (oldfoc != hwnd) SWELL_OnNavigationFocus(hwnd);
+  InvalidateRect(hwnd,NULL,FALSE);
+}
+
+static bool dialogHandleAccessKey(HWND hwnd, WPARAM wParam, LPARAM lParam)
+{
+  if (!hwnd || !(lParam & FVIRTKEY) || !(lParam & FALT) || (lParam & (FCONTROL|FLWIN))) return false;
+  if (!((wParam >= 'A' && wParam <= 'Z') || (wParam >= '0' && wParam <= '9'))) return false;
+
+  const int key = toupper_safe((int)wParam);
+  for (HWND ch = GetWindow(hwnd,GW_CHILD); ch; ch = GetWindow(ch,GW_HWNDNEXT))
+  {
+    if (!ch->m_visible || !ch->m_enabled || !ch->m_classname) continue;
+
+    const bool isbutton = !strcmp(ch->m_classname,"Button");
+    const bool isgroup = isbutton && (ch->m_style & BS_GROUPBOX);
+    const bool isstatic = !isbutton && !strcmp(ch->m_classname,"Static");
+    if (!isbutton && !isstatic) continue;
+    if (isstatic && (ch->m_style & SS_NOPREFIX)) continue;
+    if (dialogAccessKeyFromLabel(ch->m_title.Get()) != key) continue;
+
+    if (isbutton && !isgroup)
+    {
+      dialogFocusWindow(ch);
+      SendMessage(ch,WM_KEYDOWN,VK_SPACE,FVIRTKEY);
+      return true;
+    }
+
+    HWND target = dialogNextFocusableSibling(ch);
+    if (target)
+    {
+      dialogFocusWindow(target);
+      return true;
+    }
+  }
+  return false;
+}
+
 
 LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
@@ -7455,6 +7530,8 @@ LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
     if (uMsg == WM_KEYDOWN)
     {
+      if (dialogHandleAccessKey(hwnd,wParam,lParam)) return 0;
+
       if (!hwnd->m_parent)
       {
         if (wParam == VK_ESCAPE)
