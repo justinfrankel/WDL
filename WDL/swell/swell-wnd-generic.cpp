@@ -7443,16 +7443,28 @@ static int dialogAccessKeyFromLabel(const char *p)
   return 0;
 }
 
+static bool dialogCanFocusWindow(HWND hwnd)
+{
+  return hwnd && hwnd->m_wantfocus && hwnd->m_visible && hwnd->m_enabled;
+}
+
 static HWND dialogNextFocusableSibling(HWND hwnd)
 {
   if (!hwnd) return NULL;
   HWND ch = hwnd->m_next;
   while (ch)
   {
-    if (ch->m_wantfocus && ch->m_visible && ch->m_enabled) return ch;
+    if (dialogCanFocusWindow(ch)) return ch;
     ch = ch->m_next;
   }
   return NULL;
+}
+
+static HWND dialogLabelAccessKeyTarget(HWND hwnd)
+{
+  if (!hwnd) return NULL;
+  HWND ch = hwnd->m_next;
+  return dialogCanFocusWindow(ch) ? ch : NULL;
 }
 
 static void dialogFocusWindow(HWND hwnd)
@@ -7488,7 +7500,7 @@ static bool dialogHandleAccessKey(HWND hwnd, WPARAM wParam, LPARAM lParam)
       return true;
     }
 
-    HWND target = dialogNextFocusableSibling(ch);
+    HWND target = isgroup ? dialogNextFocusableSibling(ch) : dialogLabelAccessKeyTarget(ch);
     if (target)
     {
       dialogFocusWindow(target);

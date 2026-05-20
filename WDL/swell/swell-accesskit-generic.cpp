@@ -711,6 +711,12 @@ static void swell_accesskit_set_access_key_from_mnemonic(SWELL_AccessKitOwnedNod
     swell_accesskit_copy_std_string(&node->pod.access_key, &node->access_key_storage, access_key);
 }
 
+static bool swell_accesskit_node_accepts_dialog_access_key(const SWELL_AccessKitOwnedNode *node)
+{
+  return node && node->hwnd && node->hwnd->m_visible &&
+      (node->pod.action_mask & SWELL_ACCESSKIT_ACTION_FOCUS_MASK);
+}
+
 static bool swell_accesskit_menu_item_is_string(const MENUITEMINFO *item)
 {
   return item && (item->fType == MFT_STRING || item->fType == MFT_RADIOCHECK);
@@ -1501,7 +1507,8 @@ static void swell_accesskit_apply_nearby_labels(SWELL_AccessKitOwnedSnapshot *sn
     if (sibling_label)
     {
       swell_accesskit_set_labelled_by(node,swell_accesskit_node_id_for_hwnd(sibling_label));
-      swell_accesskit_set_access_key_from_mnemonic(node,sibling_label->m_title.Get());
+      if (swell_accesskit_node_accepts_dialog_access_key(node))
+        swell_accesskit_set_access_key_from_mnemonic(node,sibling_label->m_title.Get());
       continue;
     }
 
@@ -1555,12 +1562,14 @@ static void swell_accesskit_apply_nearby_labels(SWELL_AccessKitOwnedSnapshot *sn
     if (best_same_row >= 0)
     {
       swell_accesskit_set_labelled_by(node,snapshot->nodes[(size_t)best_same_row].pod.id);
-      swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_same_row].hwnd->m_title.Get());
+      if (swell_accesskit_node_accepts_dialog_access_key(node))
+        swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_same_row].hwnd->m_title.Get());
     }
     else if (best_above >= 0)
     {
       swell_accesskit_set_labelled_by(node,snapshot->nodes[(size_t)best_above].pod.id);
-      swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_above].hwnd->m_title.Get());
+      if (swell_accesskit_node_accepts_dialog_access_key(node))
+        swell_accesskit_set_access_key_from_mnemonic(node,snapshot->nodes[(size_t)best_above].hwnd->m_title.Get());
     }
   }
 }
