@@ -11,6 +11,7 @@
 - Provider-owned live announcements, persistent live-region export, duplicate-announcement handling, hidden internal popup windows, and multiline text-run export are implemented on the current branch.
 - SWELL menu-bar keyboard ownership now handles and swallows F10/menu traversal before application dispatch on the GDK backend.
 - The sibling AccessKit dependency now reports non-menu widget mnemonics to AT-SPI with the conventional Alt modifier while preserving bare posted-menu mnemonics.
+- SWELL dialog access-key dispatch now handles Alt+mnemonic labels and buttons on Linux, with static-label mnemonics limited to their intended labelled target.
 - Build artifacts are ignored by the repo root `.gitignore`.
 
 ## Reproducibility
@@ -44,6 +45,8 @@
   - `b2357349` (`accesskit shim: normalize one-based collection metadata`)
   - `5c62f243` (`swell: refresh tree accessibility on expansion`)
   - `87085b58` (`swell: validate AccessKit snapshot references`)
+  - `7a13d435` (`swell: handle dialog access keys`)
+  - `42e712e5` (`swell: keep dialog mnemonics on intended targets`)
 - Sibling dependency branch: `../accesskit` branch `swell-fixes`
 - Sibling dependency commit: `8791d5f7ec4597637172699d95c5fd78c720b7a5`
 
@@ -176,7 +179,6 @@
 
 ## Deferred Work
 
-- Verify Linux Alt+mnemonic dispatch for dialog controls against the exported AccessKit access keys.
 - Richer multiline edit navigation semantics beyond the current per-line text-run export.
 - Rich text structure.
 - Incremental AccessKit tree diffs.
@@ -247,6 +249,8 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - REAPER loads the rebuilt debug `libSwell.so` through `/home/robbie/REAPER/libSwell.so -> /home/robbie/src/WDL/WDL/swell/libSwell.so`.
 - The sample harness now covers listbox selection, multiselect listbox state, report-grid rows/cells, and a large owner-data report list intended to exercise ranged export plus offscreen active-item retention.
 - `cargo test -p accesskit_atspi_common` passed in `../accesskit` after adding Alt-modified AT-SPI keybinding strings for non-menu widget mnemonics.
+- `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, and `git diff --check` passed after tightening dialog mnemonic targets.
+- A timed `SWELL_ACCESSKIT_DEBUG=1` sample launch confirmed the progress indicator keeps its `labelled_by` relation without advertising an unusable access key; interactive Orca keypress coverage remains part of the broader manual AT-SPI pass.
 
 ## Sample App Coverage
 
