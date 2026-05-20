@@ -3186,6 +3186,60 @@ static LRESULT WINAPI trackbarWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
       if (hwnd->m_private_data) ((int *)hwnd->m_private_data)[2] = (int) lParam;
       swell_accesskit_window_changed(hwnd);
     break;
+    case WM_KEYDOWN:
+      if (hwnd->m_private_data)
+      {
+        int *state = (int *)hwnd->m_private_data;
+        const int range = state[1];
+        const int low = LOWORD(range), high=HIWORD(range);
+        int newval = state[0];
+        int notify_code = -1;
+
+        switch (wParam)
+        {
+          case VK_LEFT:
+          case VK_DOWN:
+            newval--;
+            notify_code = SB_LINELEFT;
+          break;
+          case VK_RIGHT:
+          case VK_UP:
+            newval++;
+            notify_code = SB_LINERIGHT;
+          break;
+          case VK_NEXT:
+            newval -= wdl_max(1,(high-low)/10);
+            notify_code = SB_PAGELEFT;
+          break;
+          case VK_PRIOR:
+            newval += wdl_max(1,(high-low)/10);
+            notify_code = SB_PAGERIGHT;
+          break;
+          case VK_HOME:
+            newval = low;
+            notify_code = SB_TOP;
+          break;
+          case VK_END:
+            newval = high;
+            notify_code = SB_BOTTOM;
+          break;
+        }
+
+        if (notify_code >= 0)
+        {
+          if (newval < low) newval=low;
+          else if (newval > high) newval=high;
+          if (newval != state[0])
+          {
+            state[0]=newval;
+            InvalidateRect(hwnd,NULL,FALSE);
+            SendMessage(hwnd->m_parent,WM_HSCROLL,notify_code,(LPARAM)hwnd);
+            swell_accesskit_window_changed(hwnd);
+          }
+          return 1;
+        }
+      }
+    break;
     case WM_NCDESTROY:
       free((int *)hwnd->m_private_data);
       hwnd->m_private_data=0;
