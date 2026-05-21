@@ -14,6 +14,7 @@
 - SWELL dialog access-key dispatch now handles Alt+mnemonic labels and buttons on Linux, with static-label mnemonics limited to their intended labelled target.
 - Generic SWELL trackbars now support keyboard value changes for arrow, page, Home, and End keys.
 - Build artifacts are ignored by the repo root `.gitignore`.
+- A REAPER missing-control audit has been captured in `reaper-accesskit-missing-control-audit.md`. The highest-priority finding is that several REAPER dialogs expose expected AT-SPI nodes but render blank and report zero-sized child extents.
 
 ## Reproducibility
 
@@ -188,6 +189,45 @@
 - A real Linux desktop pass to confirm the Wayland/WSL key-forwarding gate does not duplicate native Orca key events.
 - Manual auditory Orca verification of live announcements, menu-bar keyboard traversal, submenu traversal, combo dropdown announcement, list/listview/tree navigation, and tab announcement.
 - Richer selection metadata beyond the current ABI, if validation shows it is needed after this collection-hardening pass.
+
+## REAPER Missing-Control Audit
+
+- Audit document: `reaper-accesskit-missing-control-audit.md`
+- Audit date: 2026-05-22
+- Main-screen tab focusability was not used as a coverage source and should not be expanded merely to satisfy accessibility exposure.
+- Main menus and popup menus are broadly exposed with useful labels/actions.
+- Main-window custom regions still need semantic children for visible controls such as toolbar buttons, transport controls, master controls, faders, meters, and status/rate/time displays.
+- Preferences, Actions, and FX browser exposed expected accessible controls but displayed blank dialog bodies and exported zero-sized or invalid child extents.
+- AccessKit debug validation did not report missing-reference, stale-target, invalid-reference, fallback, failure, or panic diagnostics during the pass.
+
+## Plan For Implementation
+
+1. Reproduce the blank-dialog/zero-extent bug with a minimal debug run.
+   - Use Preferences, Actions, and FX browser as the first targets because they all expose AT-SPI children while their dialog bodies render blank.
+   - Capture each affected top-level `HWND__`, native window rectangle, client rectangle, SWELL child rectangle, and exported AccessKit bounds.
+   - Confirm whether the bad geometry starts in SWELL layout, native/GDK window geometry, or the AccessKit coordinate conversion layer.
+
+2. Fix dialog body geometry before adding new semantics.
+   - Patch the smallest SWELL geometry/layout path that explains the blank rendered body and zero child extents.
+   - Verify that existing dialog controls keep their current roles, labels, actions, text/value interfaces, list/tree/table metadata, and focus behavior.
+   - Re-run Preferences, Actions, and FX browser under `SWELL_ACCESSKIT_DEBUG=1` and confirm visible controls have non-zero extents.
+
+3. Clean up list/table semantics after geometry is trustworthy.
+   - Recheck the Action List table row/cell export with valid extents.
+   - Remove or suppress actionable empty-label cells where they represent empty/decorative columns rather than invokable content.
+   - Verify FX browser tree/list counts, visible ranges, selection, active descendant, and action target IDs.
+
+4. Add REAPER main-window custom control semantics without changing tab order.
+   - Model visible toolbar and transport buttons as semantic actionable nodes only when their action target can be resolved.
+   - Expose master controls, faders, knobs, meters, rate/time/status labels, and similar custom controls with roles/value metadata that match their behavior.
+   - Keep decorative panels, separators, and empty arrange/background regions non-focusable and non-actionable.
+
+5. Validate with the current integrity checks and a REAPER smoke pass.
+   - Build with `make -C WDL/swell DEBUG=1 -j2`.
+   - Run REAPER with `SWELL_ACCESSKIT_DEBUG=1`.
+   - Dump AT-SPI trees with `tools/atspi_dump.py`.
+   - Confirm logs contain no missing-reference, stale-target, invalid-reference, fallback, warning, failure, or panic diagnostics.
+   - Confirm no fix requires adding main-screen controls to keyboard tab order.
 
 ## Validation
 
