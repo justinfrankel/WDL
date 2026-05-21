@@ -663,6 +663,15 @@ void GetClientRect(HWND hwnd, RECT *r)
   r->bottom=r->top + (tr.rgrc[0].bottom-tr.rgrc[0].top);
 }
 
+LPARAM swell_make_wm_size_lparam(HWND hwnd)
+{
+  RECT r = {0,};
+  GetClientRect(hwnd,&r);
+  const int w = wdl_max(r.right - r.left,0);
+  const int h = wdl_max(r.bottom - r.top,0);
+  return MAKELPARAM(w,h);
+}
+
 
 
 void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flags)
@@ -748,11 +757,11 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
     if (hwnd->m_oswindow && !hwnd->m_oswindow_fullscreen)
     {
       swell_oswindow_resize(hwnd->m_oswindow,reposflag,f);
-      if (reposflag&2) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,0);
+      if (reposflag&2) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,swell_make_wm_size_lparam(hwnd));
     }
     else
     {
-      if (reposflag&2) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,0);
+      if (reposflag&2) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,swell_make_wm_size_lparam(hwnd));
       InvalidateRect(hwnd->m_parent ? hwnd->m_parent : hwnd,NULL,FALSE);
     }
     swell_accesskit_window_changed(hwnd);
@@ -1171,7 +1180,7 @@ static void Draw3DBox(HDC hdc, const RECT *r, int bgc, int topc, int botc, bool 
 #include "swell-dlggen.h"
 
 static HWND m_make_owner;
-static RECT m_transform;
+static RECT m_transform = { 0, 0, 65536, 65536 };
 static bool m_doautoright;
 static RECT m_lastdoauto;
 static bool m_sizetofits;
@@ -1180,6 +1189,8 @@ static bool m_sizetofits;
 
 void SWELL_MakeSetCurParms(float xscale, float yscale, float xtrans, float ytrans, HWND parent, bool doauto, bool dosizetofit)
 {
+  if (xscale == 0.0f) xscale = 1.0f;
+  if (yscale == 0.0f) yscale = 1.0f;
   if (g_swell_ui_scale != 256 && xscale != 1.0f && yscale != 1.0f)
   {
     const float m = g_swell_ui_scale/256.0f;

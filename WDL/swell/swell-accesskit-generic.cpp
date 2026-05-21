@@ -2071,6 +2071,28 @@ static void swell_accesskit_validate_snapshot_references(HWND root, SWELL_Access
   }
 }
 
+static void swell_accesskit_normalize_snapshot_bounds(HWND root, SWELL_AccessKitOwnedSnapshot *snapshot)
+{
+  if (!root || !snapshot) return;
+
+  RECT inner = {0,};
+  GetClientRect(root, &inner);
+  ClientToScreen(root, (POINT *)&inner);
+  ClientToScreen(root, ((POINT *)&inner) + 1);
+
+  const double dx = (double)inner.left;
+  const double dy = (double)inner.top;
+  size_t i;
+  for (i = 0; i < snapshot->nodes.size(); ++i)
+  {
+    swell_accesskit_rect *bounds = &snapshot->nodes[i].pod.bounds;
+    bounds->x0 -= dx;
+    bounds->x1 -= dx;
+    bounds->y0 -= dy;
+    bounds->y1 -= dy;
+  }
+}
+
 static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapshot *snapshot)
 {
   if (!snapshot || !root || root->m_hashaddestroy || !root->m_visible) return false;
@@ -2126,6 +2148,7 @@ static bool swell_accesskit_build_snapshot(HWND root, SWELL_AccessKitOwnedSnapsh
       snapshot->focus_id = swell_accesskit_popup_menu_id_for_hwnd(menu_hwnd);
   }
 
+  swell_accesskit_normalize_snapshot_bounds(root,snapshot);
   swell_accesskit_validate_snapshot_references(root,snapshot);
 
   snapshot->exported_nodes.resize(snapshot->nodes.size());

@@ -762,6 +762,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           {
             swell_oswindow_resize(hwnd->m_oswindow,hwnd->m_has_had_position?3:2,r);
             swell_oswindow_postresize(hwnd,r);
+            SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,swell_make_wm_size_lparam(hwnd));
           }
 
           swell_set_owned_windows_transient(hwnd, true);
@@ -1102,15 +1103,17 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
   HWND hwnd = swell_oswindow_to_hwnd(cfg->window);
   if (!hwnd) return;
   int flag=0;
+  const bool first_configure = !hwnd->m_has_had_position;
   if (cfg->x != hwnd->m_position.left || 
       cfg->y != hwnd->m_position.top || 
-      !hwnd->m_has_had_position)
+      first_configure)
   {
     flag|=1;
     hwnd->m_has_had_position = true;
   }
   if (cfg->width != hwnd->m_position.right-hwnd->m_position.left || 
-      cfg->height != hwnd->m_position.bottom - hwnd->m_position.top) flag|=2;
+      cfg->height != hwnd->m_position.bottom - hwnd->m_position.top ||
+      first_configure) flag|=2;
   hwnd->m_position.left = cfg->x;
   hwnd->m_position.top = cfg->y;
   hwnd->m_position.right = cfg->x + cfg->width;
@@ -1122,7 +1125,7 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
   }
   if (flag) swell_accesskit_window_changed(hwnd);
   if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
-  if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,0);
+  if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,swell_make_wm_size_lparam(hwnd));
   if (!hwnd->m_hashaddestroy && hwnd->m_oswindow && (hwnd->m_style & WS_THICKFRAME))
     swell_recalcMinMaxInfo(hwnd);
 }
@@ -1136,7 +1139,8 @@ static void OnWindowStateEvent(GdkEventWindowState *evt)
   {
     hwnd->m_is_maximized = (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED)!=0;
     SendMessage(hwnd,WM_SIZE,
-        (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) ? SIZE_MAXIMIZED : SIZE_RESTORED, 0);
+        (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) ? SIZE_MAXIMIZED : SIZE_RESTORED,
+        swell_make_wm_size_lparam(hwnd));
   }
 }
 
@@ -3274,7 +3278,7 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
       gdk_window_add_filter(NULL, filterCreateShowProc, NULL);
     }
     SetTimer(hwnd,1,100,NULL);
-    if (!need_reparent) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,0);
+    if (!need_reparent) SendMessage(hwnd,WM_SIZE,SIZE_RESTORED,swell_make_wm_size_lparam(hwnd));
   }
   return hwnd;
 }

@@ -1015,6 +1015,7 @@ void swell_oswindow_update_text(HWND hwnd);
 void swell_oswindow_begin_resize(SWELL_OSWINDOW wnd);
 void swell_oswindow_resize(SWELL_OSWINDOW wnd, int reposflag, RECT f);
 void swell_oswindow_postresize(HWND hwnd, RECT f);
+LPARAM swell_make_wm_size_lparam(HWND hwnd);
 void swell_oswindow_invalidate(HWND hwnd, const RECT *r);
 void swell_oswindow_destroy(HWND hwnd);
 void swell_oswindow_manage(HWND hwnd, bool wantfocus);
