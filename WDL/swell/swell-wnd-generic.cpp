@@ -7056,7 +7056,7 @@ bool ListView_GetSubItemRect(HWND h, int item, int subitem, int code, RECT *r)
   r->left=cr.left;
   r->right=cr.right;
 
-  if (subitem>0)
+  if (subitem>=0)
   {
     int x,xpos=-lvs->m_scroll_x;
     const int n=lvs->m_cols.GetSize();
@@ -7242,10 +7242,58 @@ bool swell_accesskit_get_listview_column_text(HWND hwnd, int column, char *buf, 
   return true;
 }
 
+bool swell_accesskit_get_listview_column_rect(HWND hwnd, int column, RECT *rect)
+{
+  listViewState *lvs = hwnd ? (listViewState *)hwnd->m_private_data : NULL;
+  if (!rect || !lvs || column < 0 || column >= lvs->m_cols.GetSize()) return false;
+
+  RECT cr;
+  GetClientRect(hwnd,&cr);
+
+  int total_width = 0;
+  for (int i = 0; i < lvs->m_cols.GetSize(); ++i)
+    total_width += wdl_max(lvs->m_cols.Get()[i].xwid,0);
+
+  rect->top = 0;
+  rect->bottom = lvs->GetColumnHeaderHeight(hwnd);
+  if (total_width > 0)
+  {
+    int xpos = -lvs->m_scroll_x;
+    for (int i = 0; i < lvs->m_cols.GetSize(); ++i)
+    {
+      const int xwid = wdl_max(lvs->m_cols.Get()[i].xwid,0);
+      if (lvs->m_cols.Get()[i].col_index == column)
+      {
+        rect->left = xpos;
+        rect->right = xpos + xwid;
+        return true;
+      }
+      xpos += xwid;
+    }
+    return false;
+  }
+
+  const int count = wdl_max(lvs->m_cols.GetSize(),1);
+  const int view_width = wdl_max(cr.right - cr.left, count);
+  rect->left = cr.left + (view_width * column) / count;
+  rect->right = cr.left + (view_width * (column + 1)) / count;
+  return true;
+}
+
 bool swell_accesskit_get_listview_item_rect(HWND hwnd, int index, int column, RECT *rect)
 {
   if (!rect) return false;
-  return column >= 0 ? ListView_GetSubItemRect(hwnd,index,column,0,rect) : ListView_GetItemRect(hwnd,index,rect,0);
+  const bool rv = column >= 0 ? ListView_GetSubItemRect(hwnd,index,column,0,rect) : ListView_GetItemRect(hwnd,index,rect,0);
+  if (column >= 0 && rect->right <= rect->left)
+  {
+    RECT col_rect;
+    if (swell_accesskit_get_listview_column_rect(hwnd,column,&col_rect))
+    {
+      rect->left = col_rect.left;
+      rect->right = col_rect.right;
+    }
+  }
+  return rv;
 }
 
 HWND ChildWindowFromPoint(HWND h, POINT p)

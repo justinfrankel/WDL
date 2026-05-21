@@ -1098,6 +1098,7 @@ bool swell_accesskit_get_listview_export_range(HWND hwnd, swell_accesskit_collec
 bool swell_accesskit_get_listview_item_identity(HWND hwnd, int index, uintptr_t *identity);
 bool swell_accesskit_get_listview_item_text(HWND hwnd, int index, int column, char *buf, int buflen);
 bool swell_accesskit_get_listview_column_text(HWND hwnd, int column, char *buf, int buflen);
+bool swell_accesskit_get_listview_column_rect(HWND hwnd, int column, RECT *rect);
 bool swell_accesskit_get_listview_item_rect(HWND hwnd, int index, int column, RECT *rect);
 bool swell_accesskit_get_treeview_info(HWND hwnd, swell_accesskit_treeview_info *info);
 HTREEITEM swell_accesskit_get_treeview_visible_item(HWND hwnd, int visible_index);

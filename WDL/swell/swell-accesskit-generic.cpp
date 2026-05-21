@@ -1682,9 +1682,12 @@ static void swell_accesskit_populate_column_header_node(HWND hwnd, int column, S
   RECT rect = {0,};
   swell_accesskit_listview_info info;
   swell_accesskit_get_listview_info(hwnd,&info);
-  rect.left = column == 0 ? 0 : column * 80;
-  rect.right = rect.left + 80;
-  rect.top = 0;
+  if (!swell_accesskit_get_listview_column_rect(hwnd,column,&rect))
+  {
+    rect.left = column == 0 ? 0 : column * 80;
+    rect.right = rect.left + 80;
+    rect.top = 0;
+  }
   rect.bottom = info.header_height;
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
@@ -1760,8 +1763,8 @@ static void swell_accesskit_populate_grid_cell_node(HWND hwnd, int row, int col,
   node->pod.column_index = (size_t)col + 1;
   node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED;
   if (ListView_GetItemState(hwnd,row,LVIS_SELECTED)) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
-  node->pod.action_mask = SWELL_ACCESSKIT_ACTION_FOCUS_MASK | SWELL_ACCESSKIT_ACTION_CLICK_MASK |
-      SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW_MASK;
+  node->pod.action_mask = SWELL_ACCESSKIT_ACTION_FOCUS_MASK | SWELL_ACCESSKIT_ACTION_SCROLL_INTO_VIEW_MASK;
+  if (text[0]) node->pod.action_mask |= SWELL_ACCESSKIT_ACTION_CLICK_MASK;
   node->labelled_by_storage.push_back(swell_accesskit_column_header_id_for_hwnd(hwnd,col));
   node->pod.labelled_by_count = node->labelled_by_storage.size();
   node->pod.labelled_by = node->labelled_by_storage.data();
