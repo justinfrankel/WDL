@@ -50,6 +50,9 @@
   - `7a13d435` (`swell: handle dialog access keys`)
   - `42e712e5` (`swell: keep dialog mnemonics on intended targets`)
   - `bc8e1a24` (`Add keyboard control for generic trackbars`)
+  - `72400c4c` (`swell: log AccessKit zero geometry diagnostics`)
+  - `5c4a69e7` (`swell: fix initial dialog accessibility geometry`)
+  - `1d6b38fc` (`swell: fix AccessKit report cell bounds`)
 - Sibling dependency branch: `../accesskit` branch `swell-fixes`
 - Sibling dependency commit: `8791d5f7ec4597637172699d95c5fd78c720b7a5`
 
@@ -197,7 +200,8 @@
 - Main-screen tab focusability was not used as a coverage source and should not be expanded merely to satisfy accessibility exposure.
 - Main menus and popup menus are broadly exposed with useful labels/actions.
 - Main-window custom regions still need semantic children for visible controls such as toolbar buttons, transport controls, master controls, faders, meters, and status/rate/time displays.
-- Preferences, Actions, and FX browser exposed expected accessible controls but displayed blank dialog bodies and exported zero-sized or invalid child extents.
+- Preferences, Actions, and FX browser exposed expected accessible controls but displayed blank dialog bodies and exported zero-sized or invalid child extents. The initial SWELL dialog geometry collapse and AccessKit screen-coordinate export issue have been fixed by `5c4a69e7`.
+- Action List report headers and cells now export nonzero per-column bounds, including when REAPER leaves the underlying SWELL column widths at zero; empty-label cells no longer expose click actions as of `1d6b38fc`.
 - AccessKit debug validation did not report missing-reference, stale-target, invalid-reference, fallback, failure, or panic diagnostics during the pass.
 
 ## Plan For Implementation
@@ -206,16 +210,19 @@
    - Use Preferences, Actions, and FX browser as the first targets because they all expose AT-SPI children while their dialog bodies render blank.
    - Capture each affected top-level `HWND__`, native window rectangle, client rectangle, SWELL child rectangle, and exported AccessKit bounds.
    - Confirm whether the bad geometry starts in SWELL layout, native/GDK window geometry, or the AccessKit coordinate conversion layer.
+   - Completed in this chunk: the failing Preferences run showed zero SWELL child `m_position` rectangles before AccessKit export, followed by a separate AccessKit root-coordinate mismatch after SWELL layout was corrected.
 
 2. Fix dialog body geometry before adding new semantics.
    - Patch the smallest SWELL geometry/layout path that explains the blank rendered body and zero child extents.
    - Verify that existing dialog controls keep their current roles, labels, actions, text/value interfaces, list/tree/table metadata, and focus behavior.
    - Re-run Preferences, Actions, and FX browser under `SWELL_ACCESSKIT_DEBUG=1` and confirm visible controls have non-zero extents.
+   - Completed in this chunk: Preferences, Actions, and Browse FX now expose visible child controls with nonzero extents and no missing-reference/fallback diagnostics in the debug logs.
 
 3. Clean up list/table semantics after geometry is trustworthy.
    - Recheck the Action List table row/cell export with valid extents.
    - Remove or suppress actionable empty-label cells where they represent empty/decorative columns rather than invokable content.
    - Verify FX browser tree/list counts, visible ranges, selection, active descendant, and action target IDs.
+   - Partially completed in this chunk: Action List report cells now have stable per-column bounds and empty-label cells do not advertise click actions. Browse FX tree/list extents are nonzero; its 248-row plugin list still uses the existing under-1000 full-export policy.
 
 4. Add REAPER main-window custom control semantics without changing tab order.
    - Model visible toolbar and transport buttons as semantic actionable nodes only when their action target can be resolved.
