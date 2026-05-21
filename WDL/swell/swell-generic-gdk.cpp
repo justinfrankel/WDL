@@ -44,6 +44,7 @@ extern "C" {
 #include "../wdlcstring.h"
 #include "../wdlutf8.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #if !defined(SWELL_TARGET_GDK_NO_CURSOR_HACK)
@@ -138,6 +139,43 @@ static HCURSOR s_last_setcursor;
 static SWELL_OSWINDOW s_last_setcursor_oswnd;
 
 static void *g_swell_touchptr; // last GDK touch sequence
+
+static bool swell_gdk_accesskit_debug_enabled()
+{
+  return getenv("SWELL_ACCESSKIT_DEBUG") != NULL;
+}
+
+static bool swell_gdk_rect_empty_or_inverted(const RECT *r)
+{
+  return !r || r->right <= r->left || r->bottom <= r->top;
+}
+
+static void swell_gdk_debug_log_geometry(HWND hwnd, const char *kind, const RECT *rect)
+{
+  if (!swell_gdk_accesskit_debug_enabled() || !hwnd) return;
+
+  FILE *fp = fopen("/tmp/swell-accesskit-debug.log","a");
+  if (!fp) return;
+
+  fprintf(fp,
+      "SWELL GDK geometry %s hwnd=%p parent=%p class=%s title=\"%s\" style=0x%llx haspos=%d pos=(%d,%d %dx%d) rect=(%d,%d %dx%d)\n",
+      kind ? kind : "window",
+      hwnd,
+      hwnd->m_parent,
+      hwnd->m_classname ? hwnd->m_classname : "",
+      hwnd->m_title.Get() ? hwnd->m_title.Get() : "",
+      (unsigned long long)hwnd->m_style,
+      hwnd->m_has_had_position ? 1 : 0,
+      hwnd->m_position.left,
+      hwnd->m_position.top,
+      hwnd->m_position.right - hwnd->m_position.left,
+      hwnd->m_position.bottom - hwnd->m_position.top,
+      rect ? rect->left : 0,
+      rect ? rect->top : 0,
+      rect ? rect->right - rect->left : 0,
+      rect ? rect->bottom - rect->top : 0);
+  fclose(fp);
+}
 static void *g_swell_touchptr_wnd; // last window of touch sequence, for forcing end of sequence on destroy
 
 static bool g_swell_mouse_relmode;
@@ -1077,6 +1115,11 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
   hwnd->m_position.top = cfg->y;
   hwnd->m_position.right = cfg->x + cfg->width;
   hwnd->m_position.bottom = cfg->y + cfg->height;
+  if (cfg->width <= 0 || cfg->height <= 0)
+  {
+    RECT r = { cfg->x, cfg->y, cfg->x + cfg->width, cfg->y + cfg->height };
+    swell_gdk_debug_log_geometry(hwnd,"configure-empty",&r);
+  }
   if (flag) swell_accesskit_window_changed(hwnd);
   if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
   if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,0);
@@ -2117,6 +2160,8 @@ bool GetWindowRect(HWND hwnd, RECT *r)
     r->bottom = y + hwnd->m_position.bottom - hwnd->m_position.top;
 #endif
 
+    if (swell_gdk_rect_empty_or_inverted(r))
+      swell_gdk_debug_log_geometry(hwnd,"get-window-rect-oswindow",r);
     return true;
   }
 
@@ -2124,6 +2169,8 @@ bool GetWindowRect(HWND hwnd, RECT *r)
   ClientToScreen(hwnd,(LPPOINT)r);
   r->right = r->left + hwnd->m_position.right - hwnd->m_position.left;
   r->bottom = r->top + hwnd->m_position.bottom - hwnd->m_position.top;
+  if (swell_gdk_rect_empty_or_inverted(r))
+    swell_gdk_debug_log_geometry(hwnd,"get-window-rect-child",r);
   return true;
 }
 
@@ -2157,6 +2204,8 @@ void swell_oswindow_postresize(HWND hwnd, RECT f)
 { 
   if (hwnd->m_oswindow && (hwnd->m_oswindow_private&PRIVATE_NEEDSHOW) && !hwnd->m_oswindow_fullscreen)
   {
+    if (swell_gdk_rect_empty_or_inverted(&f))
+      swell_gdk_debug_log_geometry(hwnd,"postresize-needshow-empty",&f);
     gdk_window_show(hwnd->m_oswindow);
     if (hwnd->m_style & WS_CAPTION) gdk_window_unmaximize(hwnd->m_oswindow); // fixes Kwin
     swell_oswindow_resize(hwnd->m_oswindow,3,f); // fixes xfce

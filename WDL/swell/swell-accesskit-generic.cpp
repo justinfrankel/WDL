@@ -117,6 +117,62 @@ static void swell_accesskit_debug_log(const char *fmt, ...)
   }
 }
 
+static bool swell_accesskit_rect_is_empty_or_inverted(const RECT *rect)
+{
+  return !rect || rect->right <= rect->left || rect->bottom <= rect->top;
+}
+
+static const char *swell_accesskit_debug_title(HWND hwnd)
+{
+  const char *title = hwnd ? hwnd->m_title.Get() : NULL;
+  return title ? title : "";
+}
+
+static void swell_accesskit_debug_log_hwnd_geometry(HWND hwnd, const char *kind, const RECT *exported)
+{
+  if (!g_accesskit_debug || !hwnd) return;
+
+  RECT wnd = {0,};
+  RECT client = {0,};
+  RECT client_screen = {0,};
+  GetWindowRect(hwnd,&wnd);
+  GetClientRect(hwnd,&client);
+  client_screen = client;
+  ClientToScreen(hwnd,(POINT *)&client_screen);
+  ClientToScreen(hwnd,((POINT *)&client_screen) + 1);
+
+  swell_accesskit_debug_log(
+      "SWELL AccessKit geometry %s hwnd=%p parent=%p class=%s title=\"%s\" style=0x%llx visible=%d enabled=%d pos=(%d,%d %dx%d) wnd=(%d,%d %dx%d) client=(%d,%d %dx%d) client_screen=(%d,%d %dx%d) exported=(%d,%d %dx%d)",
+      kind ? kind : "node",
+      hwnd,
+      hwnd->m_parent,
+      hwnd->m_classname ? hwnd->m_classname : "",
+      swell_accesskit_debug_title(hwnd),
+      (unsigned long long)hwnd->m_style,
+      hwnd->m_visible ? 1 : 0,
+      hwnd->m_enabled ? 1 : 0,
+      hwnd->m_position.left,
+      hwnd->m_position.top,
+      hwnd->m_position.right - hwnd->m_position.left,
+      hwnd->m_position.bottom - hwnd->m_position.top,
+      wnd.left,
+      wnd.top,
+      wnd.right - wnd.left,
+      wnd.bottom - wnd.top,
+      client.left,
+      client.top,
+      client.right - client.left,
+      client.bottom - client.top,
+      client_screen.left,
+      client_screen.top,
+      client_screen.right - client_screen.left,
+      client_screen.bottom - client_screen.top,
+      exported ? exported->left : 0,
+      exported ? exported->top : 0,
+      exported ? exported->right - exported->left : 0,
+      exported ? exported->bottom - exported->top : 0);
+}
+
 static bool swell_accesskit_is_internal_menu_window(HWND hwnd)
 {
   return hwnd && GetProp(hwnd,"SWELL_AccessKitMenuSerial") != NULL;
@@ -539,6 +595,11 @@ static void swell_accesskit_update_root_bounds(SWELL_AccessKitWindowState *state
   GetClientRect(state->hwnd, &inner);
   ClientToScreen(state->hwnd, (POINT *)&inner);
   ClientToScreen(state->hwnd, ((POINT *)&inner) + 1);
+
+  if (swell_accesskit_rect_is_empty_or_inverted(&outer) || swell_accesskit_rect_is_empty_or_inverted(&inner))
+  {
+    swell_accesskit_debug_log_hwnd_geometry(state->hwnd,"root-bounds",swell_accesskit_rect_is_empty_or_inverted(&outer) ? &outer : &inner);
+  }
 
   const swell_accesskit_rect outer_rect = swell_accesskit_rect_from_rect(&outer);
   const swell_accesskit_rect inner_rect = swell_accesskit_rect_from_rect(&inner);
@@ -1004,6 +1065,8 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   RECT bounds = {0,};
   GetWindowRect(hwnd, &bounds);
   node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
+  if (swell_accesskit_rect_is_empty_or_inverted(&bounds))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"node-bounds",&bounds);
 
   if (!hwnd->m_enabled) node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_DISABLED;
   if (hwnd->m_classname && !strcmp(hwnd->m_classname, "Edit") && (hwnd->m_style & ES_READONLY))
@@ -1602,6 +1665,8 @@ static void swell_accesskit_populate_list_item_node(HWND hwnd, int index, bool l
   swell_accesskit_get_listview_item_rect(hwnd,index,-1,&rect);
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,listbox ? "listbox-option-bounds" : "list-item-bounds",&rect);
 }
 
 static void swell_accesskit_populate_column_header_node(HWND hwnd, int column, SWELL_AccessKitOwnedNode *node)
@@ -1623,6 +1688,8 @@ static void swell_accesskit_populate_column_header_node(HWND hwnd, int column, S
   rect.bottom = info.header_height;
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"column-header-bounds",&rect);
 }
 
 static void swell_accesskit_append_listview_cell_text(HWND hwnd, int row, int col, std::string *label)
@@ -1672,6 +1739,8 @@ static void swell_accesskit_populate_grid_row_node(HWND hwnd, int row, int colum
   swell_accesskit_get_listview_item_rect(hwnd,row,-1,&rect);
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"grid-row-bounds",&rect);
   for (int col = 0; col < column_count; ++col)
     node->children_storage.push_back(swell_accesskit_grid_cell_id_for_hwnd(hwnd,row,col));
   node->pod.child_count = node->children_storage.size();
@@ -1700,6 +1769,8 @@ static void swell_accesskit_populate_grid_cell_node(HWND hwnd, int row, int col,
   swell_accesskit_get_listview_item_rect(hwnd,row,col,&rect);
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"grid-cell-bounds",&rect);
 }
 
 static void swell_accesskit_populate_tree_item_node(HWND hwnd, HTREEITEM item, SWELL_AccessKitOwnedNode *node)
@@ -1726,6 +1797,8 @@ static void swell_accesskit_populate_tree_item_node(HWND hwnd, HTREEITEM item, S
   node->pod.size_of_set = (size_t)info.size_of_set;
   swell_accesskit_screen_rect(hwnd,&info.rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&info.rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&info.rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"tree-item-bounds",&info.rect);
 }
 
 static void swell_accesskit_populate_tab_node(HWND hwnd, int index, SWELL_AccessKitOwnedNode *node)
@@ -1748,6 +1821,8 @@ static void swell_accesskit_populate_tab_node(HWND hwnd, int index, SWELL_Access
   swell_accesskit_get_tab_rect(hwnd,index,&rect);
   swell_accesskit_screen_rect(hwnd,&rect);
   node->pod.bounds = swell_accesskit_rect_from_rect(&rect);
+  if (swell_accesskit_rect_is_empty_or_inverted(&rect))
+    swell_accesskit_debug_log_hwnd_geometry(hwnd,"tab-bounds",&rect);
 }
 
 static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapshot *snapshot, HWND hwnd, HWND focused)
