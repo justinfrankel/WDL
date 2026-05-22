@@ -118,7 +118,7 @@ public:
 
   // OS access
   virtual HWND GetRealParent() { if (m_realparent) return m_realparent; if (GetParent()) return GetParent()->GetRealParent(); return 0; }
-  virtual void SetRealParent(HWND par);
+  virtual void SetRealParent(HWND par) { m_realparent=par; }
 
   virtual INT_PTR SendCommand(int command, INT_PTR parm1, INT_PTR parm2, WDL_VWnd *src);
 
