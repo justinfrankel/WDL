@@ -1179,6 +1179,10 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
 #if defined(SWELL_TARGET_GDK) && defined(SWELL_ACCESSKIT)
   else if (!strcmp(key,"ACCESSIBILITY_ANNOUNCER"))
     return (void *)swell_accesskit_announce;
+  else if (!strcmp(key,"ACCESSIBILITY_SET_CUSTOM_PROVIDER"))
+    return (void *)swell_accesskit_set_custom_provider;
+  else if (!strcmp(key,"ACCESSIBILITY_NOTIFY_CHANGED"))
+    return (void *)swell_accesskit_notify_custom_provider_changed;
 #endif
 #ifdef SWELL_TARGET_GDK
   else if (!strcmp(key,"-FULLSCREEN"))

@@ -30,6 +30,7 @@
 #include "resource.h"
 
 #include <stdio.h>
+#include <string.h>
 
 enum { OWNER_REPORT_ROWS = 1500 };
 
@@ -41,6 +42,18 @@ HINSTANCE g_hInstance;
 HWND g_hwnd;
 typedef void (*accessibility_announce_fn)(const char *utf8_message, int interrupt);
 
+static HWND g_custom_accessibility_hwnd;
+static int g_custom_accessibility_value = 4;
+static bool g_custom_accessibility_checked;
+static SWELL_AccessibilityCustomProvider g_custom_accessibility_provider;
+
+static void notify_custom_accessibility_changed()
+{
+  SWELL_AccessibilityNotifyChangedFn notify =
+      (SWELL_AccessibilityNotifyChangedFn)SWELL_ExtendedAPI("ACCESSIBILITY_NOTIFY_CHANGED", NULL);
+  if (notify && g_custom_accessibility_hwnd) notify(g_custom_accessibility_hwnd);
+}
+
 static int get_slider_pos(HWND hwndDlg)
 {
   HWND slider = GetDlgItem(hwndDlg, IDC_SLIDER1);
@@ -50,6 +63,194 @@ static int get_slider_pos(HWND hwndDlg)
 static void set_status(HWND hwndDlg, const char *text)
 {
   SetDlgItemText(hwndDlg, IDC_LASTMSG, text ? text : "");
+}
+
+static int custom_accessibility_get_node_count(const SWELL_AccessibilityCustomProvider *provider)
+{
+  return provider && provider->hwnd ? 5 : 0;
+}
+
+static bool custom_accessibility_get_node(const SWELL_AccessibilityCustomProvider *provider, int index, SWELL_AccessibilityCustomNode *node)
+{
+  if (!provider || !provider->hwnd || !node) return false;
+
+  RECT client = {0,};
+  GetClientRect(provider->hwnd,&client);
+  memset(node,0,sizeof(*node));
+  switch (index)
+  {
+    case 0:
+      node->id = 1;
+      node->role = SWELL_ACCESSIBILITY_ROLE_GROUP;
+      node->bounds = client;
+      node->label = "Custom accessibility surface";
+    return true;
+    case 1:
+      node->id = 2;
+      node->parent_id = 1;
+      node->role = SWELL_ACCESSIBILITY_ROLE_BUTTON;
+      node->bounds.left = 4;
+      node->bounds.top = 4;
+      node->bounds.right = 78;
+      node->bounds.bottom = 20;
+      node->label = "Custom action";
+      node->action_mask = SWELL_ACCESSIBILITY_ACTION_CLICK;
+    return true;
+    case 2:
+      node->id = 3;
+      node->parent_id = 1;
+      node->role = SWELL_ACCESSIBILITY_ROLE_CHECK_BOX;
+      node->bounds.left = 84;
+      node->bounds.top = 4;
+      node->bounds.right = 152;
+      node->bounds.bottom = 20;
+      node->label = "Custom toggle";
+      node->flags = g_custom_accessibility_checked ? SWELL_ACCESSIBILITY_NODE_CHECKED : 0;
+      node->action_mask = SWELL_ACCESSIBILITY_ACTION_CLICK;
+    return true;
+    case 3:
+      node->id = 4;
+      node->parent_id = 1;
+      node->role = SWELL_ACCESSIBILITY_ROLE_SLIDER;
+      node->bounds.left = 158;
+      node->bounds.top = 4;
+      node->bounds.right = client.right > 4 ? client.right - 4 : 158;
+      node->bounds.bottom = 20;
+      node->label = "Custom value";
+      node->flags = SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_MIN_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_MAX_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE_STEP |
+          SWELL_ACCESSIBILITY_NODE_HORIZONTAL;
+      node->numeric_value = g_custom_accessibility_value;
+      node->min_numeric_value = 0;
+      node->max_numeric_value = 10;
+      node->numeric_value_step = 1;
+      node->action_mask = SWELL_ACCESSIBILITY_ACTION_SET_VALUE |
+          SWELL_ACCESSIBILITY_ACTION_INCREMENT |
+          SWELL_ACCESSIBILITY_ACTION_DECREMENT;
+    return true;
+    case 4:
+      node->id = 5;
+      node->parent_id = 1;
+      node->role = SWELL_ACCESSIBILITY_ROLE_LABEL;
+      node->bounds.left = 4;
+      node->bounds.top = 22;
+      node->bounds.right = client.right > 4 ? client.right - 4 : 4;
+      node->bounds.bottom = client.bottom > 2 ? client.bottom - 2 : 22;
+      node->value = g_custom_accessibility_checked ? "Custom toggle checked" : "Custom toggle unchecked";
+    return true;
+  }
+  return false;
+}
+
+static bool custom_accessibility_do_action(const SWELL_AccessibilityCustomProvider *provider, uint64_t node_id, int action, const SWELL_AccessibilityCustomActionData *data)
+{
+  if (!provider || !provider->hwnd) return false;
+  HWND dialog = GetParent(provider->hwnd);
+
+  if (node_id == 2 && action == SWELL_ACCESSIBILITY_ACTION_CLICK)
+  {
+    set_status(dialog, "Custom action invoked");
+  }
+  else if (node_id == 3 && action == SWELL_ACCESSIBILITY_ACTION_CLICK)
+  {
+    g_custom_accessibility_checked = !g_custom_accessibility_checked;
+    set_status(dialog, g_custom_accessibility_checked ? "Custom toggle checked" : "Custom toggle unchecked");
+  }
+  else if (node_id == 4)
+  {
+    int value = g_custom_accessibility_value;
+    if (action == SWELL_ACCESSIBILITY_ACTION_INCREMENT) ++value;
+    else if (action == SWELL_ACCESSIBILITY_ACTION_DECREMENT) --value;
+    else if (action == SWELL_ACCESSIBILITY_ACTION_SET_VALUE && data && data->data_kind == SWELL_ACCESSIBILITY_ACTION_DATA_NUMERIC)
+      value = (int)(data->numeric_value + 0.5);
+    else return false;
+    if (value < 0) value = 0;
+    if (value > 10) value = 10;
+    g_custom_accessibility_value = value;
+    char buf[128];
+    snprintf(buf,sizeof(buf),"Custom value: %d",value);
+    set_status(dialog, buf);
+  }
+  else
+    return false;
+
+  InvalidateRect(provider->hwnd,NULL,FALSE);
+  notify_custom_accessibility_changed();
+  return true;
+}
+
+static LRESULT WINAPI customAccessibilityProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+  switch (msg)
+  {
+    case WM_CREATE:
+      g_custom_accessibility_hwnd = hwnd;
+      memset(&g_custom_accessibility_provider,0,sizeof(g_custom_accessibility_provider));
+      g_custom_accessibility_provider.version = 1;
+      g_custom_accessibility_provider.hwnd = hwnd;
+      g_custom_accessibility_provider.get_node_count = custom_accessibility_get_node_count;
+      g_custom_accessibility_provider.get_node = custom_accessibility_get_node;
+      g_custom_accessibility_provider.do_action = custom_accessibility_do_action;
+      {
+        SWELL_AccessibilitySetCustomProviderFn set_provider =
+            (SWELL_AccessibilitySetCustomProviderFn)SWELL_ExtendedAPI("ACCESSIBILITY_SET_CUSTOM_PROVIDER", NULL);
+        if (set_provider) set_provider(&g_custom_accessibility_provider);
+      }
+    return 0;
+    case WM_DESTROY:
+      if (g_custom_accessibility_hwnd == hwnd)
+      {
+        SWELL_AccessibilityCustomProvider unregister_provider = g_custom_accessibility_provider;
+        unregister_provider.get_node_count = NULL;
+        unregister_provider.get_node = NULL;
+        SWELL_AccessibilitySetCustomProviderFn set_provider =
+            (SWELL_AccessibilitySetCustomProviderFn)SWELL_ExtendedAPI("ACCESSIBILITY_SET_CUSTOM_PROVIDER", NULL);
+        if (set_provider) set_provider(&unregister_provider);
+        g_custom_accessibility_hwnd = NULL;
+      }
+    break;
+    case WM_LBUTTONDOWN:
+      {
+        POINT pt = { LOWORD(lParam), HIWORD(lParam) };
+        if (pt.x < 80)
+          custom_accessibility_do_action(&g_custom_accessibility_provider,2,SWELL_ACCESSIBILITY_ACTION_CLICK,NULL);
+        else if (pt.x < 154)
+          custom_accessibility_do_action(&g_custom_accessibility_provider,3,SWELL_ACCESSIBILITY_ACTION_CLICK,NULL);
+        else
+          custom_accessibility_do_action(&g_custom_accessibility_provider,4,SWELL_ACCESSIBILITY_ACTION_INCREMENT,NULL);
+      }
+    return 0;
+    case WM_PAINT:
+      {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd,&ps);
+        RECT r;
+        GetClientRect(hwnd,&r);
+        HBRUSH bg = CreateSolidBrush(GetSysColor(COLOR_BTNFACE));
+        FillRect(hdc,&r,bg);
+        DeleteObject(bg);
+        RECT line = { 4, 4, 78, 20 };
+        DrawText(hdc,"Action",-1,&line,DT_SINGLELINE|DT_VCENTER|DT_CENTER);
+        line.left = 84;
+        line.right = 152;
+        DrawText(hdc,g_custom_accessibility_checked ? "On" : "Off",-1,&line,DT_SINGLELINE|DT_VCENTER|DT_CENTER);
+        line.left = 158;
+        line.right = r.right - 4;
+        char buf[64];
+        snprintf(buf,sizeof(buf),"Value %d",g_custom_accessibility_value);
+        DrawText(hdc,buf,-1,&line,DT_SINGLELINE|DT_VCENTER|DT_CENTER);
+        line.left = 4;
+        line.top = 22;
+        line.right = r.right - 4;
+        line.bottom = r.bottom - 2;
+        DrawText(hdc,g_custom_accessibility_checked ? "Custom toggle checked" : "Custom toggle unchecked",-1,&line,DT_SINGLELINE|DT_VCENTER);
+        EndPaint(hwnd,&ps);
+      }
+    return 0;
+  }
+  return DefWindowProc(hwnd,msg,wParam,lParam);
 }
 
 WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -83,6 +284,7 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
       resize.init_item(IDC_LISTVIEW_OWNER, 1, 0, 1, 1);
       resize.init_item(IDC_TREE1, 1, 0, 1, 1);
       resize.init_item(IDC_TAB1, 1, 0, 1, 1);
+      resize.init_item(IDC_CUSTOM_ACCESSIBILITY, 1, 1, 1, 1);
       resize.init_item(IDCANCEL,0,1,0,1);
 
       HMENU menu = LoadMenu(NULL, MAKEINTRESOURCE(IDR_MENU1));
@@ -228,6 +430,13 @@ WDL_DLGRET mainProc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
         tab.pszText = (char *)"Three";
         TabCtrl_InsertItem(tabs, 2, &tab);
         TabCtrl_SetCurSel(tabs, 0);
+      }
+      HWND custom_accessibility = CreateDialog(NULL,(const char *)0,hwndDlg,(DLGPROC)customAccessibilityProc);
+      if (custom_accessibility)
+      {
+        SetWindowLong(custom_accessibility,GWL_ID,IDC_CUSTOM_ACCESSIBILITY);
+        SetWindowPos(custom_accessibility,NULL,206,286,198,30,SWP_NOZORDER|SWP_NOACTIVATE);
+        ShowWindow(custom_accessibility,SW_SHOW);
       }
       set_status(hwndDlg, "AccessKit demo ready");
       }

@@ -233,6 +233,87 @@ typedef struct
   LONG left,top, right, bottom;
 } RECT, *LPRECT;
 
+enum
+{
+  SWELL_ACCESSIBILITY_ROLE_LABEL = 2,
+  SWELL_ACCESSIBILITY_ROLE_BUTTON = 3,
+  SWELL_ACCESSIBILITY_ROLE_DEFAULT_BUTTON = 4,
+  SWELL_ACCESSIBILITY_ROLE_CHECK_BOX = 5,
+  SWELL_ACCESSIBILITY_ROLE_RADIO_BUTTON = 6,
+  SWELL_ACCESSIBILITY_ROLE_SLIDER = 9,
+  SWELL_ACCESSIBILITY_ROLE_PROGRESS_INDICATOR = 10,
+  SWELL_ACCESSIBILITY_ROLE_GROUP = 11,
+};
+
+enum
+{
+  SWELL_ACCESSIBILITY_ACTION_FOCUS = 1u << 0,
+  SWELL_ACCESSIBILITY_ACTION_CLICK = 1u << 1,
+  SWELL_ACCESSIBILITY_ACTION_SET_VALUE = 1u << 2,
+  SWELL_ACCESSIBILITY_ACTION_INCREMENT = 1u << 3,
+  SWELL_ACCESSIBILITY_ACTION_DECREMENT = 1u << 4,
+};
+
+enum
+{
+  SWELL_ACCESSIBILITY_NODE_DISABLED = 1u << 0,
+  SWELL_ACCESSIBILITY_NODE_READ_ONLY = 1u << 1,
+  SWELL_ACCESSIBILITY_NODE_CHECKED = 1u << 2,
+  SWELL_ACCESSIBILITY_NODE_MIXED = 1u << 3,
+  SWELL_ACCESSIBILITY_NODE_HAS_SELECTED = 1u << 4,
+  SWELL_ACCESSIBILITY_NODE_SELECTED = 1u << 5,
+  SWELL_ACCESSIBILITY_NODE_FOCUSED = 1u << 6,
+  SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE = 1u << 7,
+  SWELL_ACCESSIBILITY_NODE_HAS_MIN_NUMERIC_VALUE = 1u << 8,
+  SWELL_ACCESSIBILITY_NODE_HAS_MAX_NUMERIC_VALUE = 1u << 9,
+  SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE_STEP = 1u << 10,
+  SWELL_ACCESSIBILITY_NODE_HORIZONTAL = 1u << 11,
+  SWELL_ACCESSIBILITY_NODE_VERTICAL = 1u << 12,
+};
+
+enum
+{
+  SWELL_ACCESSIBILITY_ACTION_DATA_NONE = 0,
+  SWELL_ACCESSIBILITY_ACTION_DATA_STRING = 1,
+  SWELL_ACCESSIBILITY_ACTION_DATA_NUMERIC = 2,
+};
+
+typedef struct SWELL_AccessibilityCustomNode
+{
+  uint64_t id;
+  uint64_t parent_id;
+  int role;
+  RECT bounds;
+  unsigned int flags;
+  unsigned int action_mask;
+  const char *label;
+  const char *value;
+  double numeric_value;
+  double min_numeric_value;
+  double max_numeric_value;
+  double numeric_value_step;
+} SWELL_AccessibilityCustomNode;
+
+typedef struct SWELL_AccessibilityCustomActionData
+{
+  int data_kind;
+  const char *string_value;
+  double numeric_value;
+} SWELL_AccessibilityCustomActionData;
+
+typedef struct SWELL_AccessibilityCustomProvider
+{
+  int version;
+  HWND hwnd;
+  void *user_data;
+  int (*get_node_count)(const struct SWELL_AccessibilityCustomProvider *provider);
+  bool (*get_node)(const struct SWELL_AccessibilityCustomProvider *provider, int index, SWELL_AccessibilityCustomNode *node);
+  bool (*do_action)(const struct SWELL_AccessibilityCustomProvider *provider, uint64_t node_id, int action, const SWELL_AccessibilityCustomActionData *data);
+} SWELL_AccessibilityCustomProvider;
+
+typedef void (*SWELL_AccessibilitySetCustomProviderFn)(const SWELL_AccessibilityCustomProvider *provider);
+typedef void (*SWELL_AccessibilityNotifyChangedFn)(HWND hwnd);
+
 
 typedef struct {
   unsigned char fVirt;

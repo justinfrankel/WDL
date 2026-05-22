@@ -20,6 +20,7 @@
 #define IDC_PROGRESS1                   1012
 #define IDC_LISTBOX_MULTI               1013
 #define IDC_LISTVIEW_OWNER              1014
+#define IDC_CUSTOM_ACCESSIBILITY        1015
 #define ID_QUIT                         40000
 #define ID_SAMPLE_HELLO                 40001
 #define ID_SAMPLE_DISABLED              40002

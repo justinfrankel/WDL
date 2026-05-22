@@ -79,8 +79,16 @@ struct SWELL_AccessKitWindowState
   SWELL_AccessKitWindowState *next;
 };
 
+struct SWELL_AccessKitCustomProviderEntry
+{
+  HWND hwnd;
+  const SWELL_AccessibilityCustomProvider *provider;
+  SWELL_AccessKitCustomProviderEntry *next;
+};
+
 static WDL_Mutex g_accesskit_mutex;
 static SWELL_AccessKitWindowState *g_accesskit_windows;
+static SWELL_AccessKitCustomProviderEntry *g_accesskit_custom_providers;
 static bool g_accesskit_debug = false;
 static bool g_accesskit_debug_file_ready = false;
 static unsigned int g_accesskit_debug_dump_serial = 0;
@@ -97,6 +105,7 @@ static std::string g_accesskit_announcement_export_text;
 static bool swell_accesskit_contains_hwnd(HWND parent, HWND target);
 static int swell_accesskit_count_accessible_menu_items(HMENU menu);
 static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint64_t node_id, int *index_out, int *column_out);
+static const SWELL_AccessibilityCustomProvider *swell_accesskit_find_custom_provider(HWND hwnd);
 
 static void swell_accesskit_debug_log(const char *fmt, ...)
 {
@@ -109,7 +118,7 @@ static void swell_accesskit_debug_log(const char *fmt, ...)
   va_end(ap);
 
   fprintf(stderr, "%s\n", buf);
-  FILE *fp = fopen(g_accesskit_debug_file_path, "a");
+  FILE *fp = WDL_fopenA(g_accesskit_debug_file_path, "a");
   if (fp)
   {
     fprintf(fp, "%s\n", buf);
@@ -364,6 +373,7 @@ static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TREE_ITEM = 0xa000000000000000ul
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_TAB = 0xb000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_COMBO_OPTION = 0xc000000000000000ull;
 static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT = 0xd000000000000000ull;
+static const uint64_t SWELL_ACCESSKIT_SYNTHETIC_CUSTOM = 0xe000000000000000ull;
 
 static uint64_t swell_accesskit_pointer_bits(const void *ptr)
 {
@@ -450,6 +460,13 @@ static uint64_t swell_accesskit_combo_option_id_for_hwnd(HWND hwnd, int index)
 static uint64_t swell_accesskit_announcement_id_for_hwnd(HWND hwnd)
 {
   return SWELL_ACCESSKIT_SYNTHETIC_ANNOUNCEMENT | swell_accesskit_pointer_bits(hwnd);
+}
+
+static uint64_t swell_accesskit_custom_id_for_hwnd(HWND hwnd, uint64_t provider_id)
+{
+  return SWELL_ACCESSKIT_SYNTHETIC_CUSTOM |
+      ((swell_accesskit_pointer_bits(hwnd) & 0x000000000fffffffull) << 32) |
+      (provider_id & 0xffffffffull);
 }
 
 static int swell_accesskit_get_listview_focus_column(HWND hwnd, const swell_accesskit_listview_info *info, int row)
@@ -565,6 +582,24 @@ static bool swell_accesskit_window_exists_locked(SWELL_AccessKitWindowState *nee
   return false;
 }
 
+static void swell_accesskit_remove_custom_provider_locked(HWND hwnd)
+{
+  SWELL_AccessKitCustomProviderEntry **cursor = &g_accesskit_custom_providers;
+  while (*cursor)
+  {
+    SWELL_AccessKitCustomProviderEntry *entry = *cursor;
+    if (entry->hwnd == hwnd || (hwnd && swell_accesskit_contains_hwnd(hwnd,entry->hwnd)))
+    {
+      *cursor = entry->next;
+      free(entry);
+    }
+    else
+    {
+      cursor = &entry->next;
+    }
+  }
+}
+
 static bool swell_accesskit_is_window_focused(HWND root)
 {
   if (!swell_accesskit_is_live_toplevel_hwnd(root) || !root->m_oswindow) return false;
@@ -606,6 +641,104 @@ static void swell_accesskit_update_root_bounds(SWELL_AccessKitWindowState *state
   swell_accesskit_host_set_root_window_bounds(state->host, &outer_rect, &inner_rect);
 }
 
+static const SWELL_AccessibilityCustomProvider *swell_accesskit_find_custom_provider(HWND hwnd)
+{
+  SWELL_AccessKitCustomProviderEntry *entry = g_accesskit_custom_providers;
+  while (entry)
+  {
+    if (entry->hwnd == hwnd) return entry->provider;
+    entry = entry->next;
+  }
+  return NULL;
+}
+
+static int swell_accesskit_custom_provider_node_count(const SWELL_AccessibilityCustomProvider *provider)
+{
+  if (!provider || provider->version < 1 || !provider->hwnd ||
+      !provider->get_node_count || !provider->get_node)
+    return 0;
+  const int count = provider->get_node_count(provider);
+  return count > 0 ? count : 0;
+}
+
+static bool swell_accesskit_get_custom_node(const SWELL_AccessibilityCustomProvider *provider, int index, SWELL_AccessibilityCustomNode *node)
+{
+  if (!provider || !node || index < 0 || !provider->get_node) return false;
+  memset(node,0,sizeof(*node));
+  if (!provider->get_node(provider,index,node) || !node->id || !node->role) return false;
+  return true;
+}
+
+static bool swell_accesskit_get_custom_node_by_id(const SWELL_AccessibilityCustomProvider *provider, uint64_t provider_id, SWELL_AccessibilityCustomNode *node)
+{
+  const int count = swell_accesskit_custom_provider_node_count(provider);
+  for (int i = 0; i < count; ++i)
+  {
+    SWELL_AccessibilityCustomNode candidate;
+    if (!swell_accesskit_get_custom_node(provider,i,&candidate)) continue;
+    if (candidate.id == provider_id)
+    {
+      if (node) *node = candidate;
+      return true;
+    }
+  }
+  return false;
+}
+
+static int swell_accesskit_count_custom_provider_children(const SWELL_AccessibilityCustomProvider *provider, uint64_t parent_id)
+{
+  int child_count = 0;
+  const int count = swell_accesskit_custom_provider_node_count(provider);
+  for (int i = 0; i < count; ++i)
+  {
+    SWELL_AccessibilityCustomNode node;
+    if (swell_accesskit_get_custom_node(provider,i,&node) && node.parent_id == parent_id)
+      ++child_count;
+  }
+  return child_count;
+}
+
+static uint32_t swell_accesskit_custom_role(int role)
+{
+  switch (role)
+  {
+    case SWELL_ACCESSIBILITY_ROLE_LABEL:
+    case SWELL_ACCESSIBILITY_ROLE_BUTTON:
+    case SWELL_ACCESSIBILITY_ROLE_DEFAULT_BUTTON:
+    case SWELL_ACCESSIBILITY_ROLE_CHECK_BOX:
+    case SWELL_ACCESSIBILITY_ROLE_RADIO_BUTTON:
+    case SWELL_ACCESSIBILITY_ROLE_SLIDER:
+    case SWELL_ACCESSIBILITY_ROLE_PROGRESS_INDICATOR:
+    case SWELL_ACCESSIBILITY_ROLE_GROUP:
+      return (uint32_t)role;
+  }
+  return SWELL_ACCESSKIT_ROLE_UNKNOWN;
+}
+
+static uint32_t swell_accesskit_custom_action_mask(unsigned int action_mask)
+{
+  uint32_t mask = 0;
+  if (action_mask & SWELL_ACCESSIBILITY_ACTION_FOCUS) mask |= SWELL_ACCESSKIT_ACTION_FOCUS_MASK;
+  if (action_mask & SWELL_ACCESSIBILITY_ACTION_CLICK) mask |= SWELL_ACCESSKIT_ACTION_CLICK_MASK;
+  if (action_mask & SWELL_ACCESSIBILITY_ACTION_SET_VALUE) mask |= SWELL_ACCESSKIT_ACTION_SET_VALUE_MASK;
+  if (action_mask & SWELL_ACCESSIBILITY_ACTION_INCREMENT) mask |= SWELL_ACCESSKIT_ACTION_INCREMENT_MASK;
+  if (action_mask & SWELL_ACCESSIBILITY_ACTION_DECREMENT) mask |= SWELL_ACCESSKIT_ACTION_DECREMENT_MASK;
+  return mask;
+}
+
+static int swell_accesskit_custom_action_to_provider_action(uint32_t action)
+{
+  switch (action)
+  {
+    case SWELL_ACCESSKIT_ACTION_FOCUS: return SWELL_ACCESSIBILITY_ACTION_FOCUS;
+    case SWELL_ACCESSKIT_ACTION_CLICK: return SWELL_ACCESSIBILITY_ACTION_CLICK;
+    case SWELL_ACCESSKIT_ACTION_SET_VALUE: return SWELL_ACCESSIBILITY_ACTION_SET_VALUE;
+    case SWELL_ACCESSKIT_ACTION_INCREMENT: return SWELL_ACCESSIBILITY_ACTION_INCREMENT;
+    case SWELL_ACCESSKIT_ACTION_DECREMENT: return SWELL_ACCESSIBILITY_ACTION_DECREMENT;
+  }
+  return 0;
+}
+
 static int swell_accesskit_count_nodes(HWND hwnd)
 {
   if (!hwnd || hwnd->m_hashaddestroy || !hwnd->m_visible) return 0;
@@ -636,6 +769,7 @@ static int swell_accesskit_count_nodes(HWND hwnd)
   if (swell_accesskit_hwnd_has_text_run(hwnd)) count += swell_accesskit_multiline_text_run_count(hwnd);
   if (swell_accesskit_hwnd_has_combo_text_run(hwnd)) ++count;
   if (swell_accesskit_hwnd_has_collapsed_combo_option(hwnd)) ++count;
+  count += swell_accesskit_custom_provider_node_count(swell_accesskit_find_custom_provider(hwnd));
   if (!hwnd->m_parent && hwnd->m_menu)
     count += 1 + swell_accesskit_count_accessible_menu_items(hwnd->m_menu);
   HWND child = hwnd->m_children;
@@ -1029,6 +1163,7 @@ static int swell_accesskit_count_direct_visible_children(HWND hwnd)
     swell_accesskit_tab_info info;
     if (swell_accesskit_get_tab_info(hwnd,&info)) count += info.count;
   }
+  count += swell_accesskit_count_custom_provider_children(swell_accesskit_find_custom_provider(hwnd),0);
   if (hwnd && !hwnd->m_parent && hwnd->m_menu) ++count;
   HWND child = hwnd ? hwnd->m_children : NULL;
   while (child)
@@ -1253,6 +1388,14 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
       for (int i = 0; i < info.count; ++i)
         node->children_storage.push_back(swell_accesskit_tab_id_for_hwnd(hwnd,i));
     }
+  }
+  const SWELL_AccessibilityCustomProvider *provider = swell_accesskit_find_custom_provider(hwnd);
+  const int provider_count = swell_accesskit_custom_provider_node_count(provider);
+  for (int i = 0; i < provider_count; ++i)
+  {
+    SWELL_AccessibilityCustomNode custom_node;
+    if (swell_accesskit_get_custom_node(provider,i,&custom_node) && custom_node.parent_id == 0)
+      node->children_storage.push_back(swell_accesskit_custom_id_for_hwnd(hwnd,custom_node.id));
   }
   if (!hwnd->m_parent && hwnd->m_menu)
     node->children_storage.push_back(swell_accesskit_menu_bar_id_for_hwnd(hwnd));
@@ -1828,6 +1971,86 @@ static void swell_accesskit_populate_tab_node(HWND hwnd, int index, SWELL_Access
     swell_accesskit_debug_log_hwnd_geometry(hwnd,"tab-bounds",&rect);
 }
 
+static void swell_accesskit_populate_custom_node(const SWELL_AccessibilityCustomProvider *provider, const SWELL_AccessibilityCustomNode *custom_node, SWELL_AccessKitOwnedNode *node)
+{
+  if (!provider || !provider->hwnd || !custom_node || !node) return;
+  memset(&node->pod,0,sizeof(node->pod));
+  node->hwnd = provider->hwnd;
+  node->pod.id = swell_accesskit_custom_id_for_hwnd(provider->hwnd,custom_node->id);
+  node->pod.role = swell_accesskit_custom_role(custom_node->role);
+  node->pod.toggled = SWELL_ACCESSKIT_TOGGLED_NONE;
+  node->pod.orientation = SWELL_ACCESSKIT_ORIENTATION_NONE;
+
+  RECT bounds = custom_node->bounds;
+  swell_accesskit_screen_rect(provider->hwnd,&bounds);
+  node->pod.bounds = swell_accesskit_rect_from_rect(&bounds);
+  if (swell_accesskit_rect_is_empty_or_inverted(&bounds))
+    swell_accesskit_debug_log_hwnd_geometry(provider->hwnd,"custom-node-bounds",&bounds);
+
+  if (custom_node->role == SWELL_ACCESSIBILITY_ROLE_LABEL)
+  {
+    const char *value = custom_node->value ? custom_node->value : custom_node->label;
+    swell_accesskit_copy_string(&node->pod.value,&node->value_storage,value);
+  }
+  else
+  {
+    swell_accesskit_copy_string(&node->pod.label,&node->label_storage,custom_node->label);
+    swell_accesskit_copy_string(&node->pod.value,&node->value_storage,custom_node->value);
+  }
+
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_DISABLED)
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_DISABLED;
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_READ_ONLY)
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_READ_ONLY;
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HAS_SELECTED)
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_SELECTED;
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_SELECTED)
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_SELECTED;
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_MIXED)
+    node->pod.toggled = SWELL_ACCESSKIT_TOGGLED_MIXED;
+  else if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_CHECKED)
+    node->pod.toggled = SWELL_ACCESSKIT_TOGGLED_TRUE;
+  else if (node->pod.role == SWELL_ACCESSKIT_ROLE_CHECK_BOX || node->pod.role == SWELL_ACCESSKIT_ROLE_RADIO_BUTTON)
+    node->pod.toggled = SWELL_ACCESSKIT_TOGGLED_FALSE;
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HORIZONTAL)
+    node->pod.orientation = SWELL_ACCESSKIT_ORIENTATION_HORIZONTAL;
+  else if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_VERTICAL)
+    node->pod.orientation = SWELL_ACCESSKIT_ORIENTATION_VERTICAL;
+
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE)
+  {
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_NUMERIC_VALUE;
+    node->pod.numeric_value = custom_node->numeric_value;
+  }
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HAS_MIN_NUMERIC_VALUE)
+  {
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_MIN_NUMERIC_VALUE;
+    node->pod.min_numeric_value = custom_node->min_numeric_value;
+  }
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HAS_MAX_NUMERIC_VALUE)
+  {
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_MAX_NUMERIC_VALUE;
+    node->pod.max_numeric_value = custom_node->max_numeric_value;
+  }
+  if (custom_node->flags & SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE_STEP)
+  {
+    node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_NUMERIC_VALUE_STEP;
+    node->pod.numeric_value_step = custom_node->numeric_value_step;
+  }
+
+  node->pod.action_mask = swell_accesskit_custom_action_mask(custom_node->action_mask);
+
+  const int count = swell_accesskit_custom_provider_node_count(provider);
+  for (int i = 0; i < count; ++i)
+  {
+    SWELL_AccessibilityCustomNode child;
+    if (swell_accesskit_get_custom_node(provider,i,&child) && child.parent_id == custom_node->id)
+      node->children_storage.push_back(swell_accesskit_custom_id_for_hwnd(provider->hwnd,child.id));
+  }
+  node->pod.child_count = node->children_storage.size();
+  node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+}
+
 static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapshot *snapshot, HWND hwnd, HWND focused)
 {
   if (!snapshot || !hwnd || hwnd->m_hashaddestroy || !hwnd->m_visible) return;
@@ -1917,6 +2140,20 @@ static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapsho
         snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
         swell_accesskit_populate_tab_node(hwnd,i,&snapshot->nodes.back());
       }
+    }
+  }
+
+  const SWELL_AccessibilityCustomProvider *provider = swell_accesskit_find_custom_provider(hwnd);
+  const int provider_count = swell_accesskit_custom_provider_node_count(provider);
+  for (int i = 0; i < provider_count; ++i)
+  {
+    SWELL_AccessibilityCustomNode custom_node;
+    if (swell_accesskit_get_custom_node(provider,i,&custom_node))
+    {
+      snapshot->nodes.push_back(SWELL_AccessKitOwnedNode());
+      swell_accesskit_populate_custom_node(provider,&custom_node,&snapshot->nodes.back());
+      if (custom_node.flags & SWELL_ACCESSIBILITY_NODE_FOCUSED)
+        snapshot->focus_id = snapshot->nodes.back().pod.id;
     }
   }
 
@@ -2174,7 +2411,7 @@ static void swell_accesskit_debug_dump(SWELL_AccessKitWindowState *state)
   if (dump)
   {
     fprintf(stderr, "SWELL AccessKit tree for %p:\n%s\n", state->hwnd, dump);
-    FILE *fp = fopen(g_accesskit_debug_file_path, "a");
+    FILE *fp = WDL_fopenA(g_accesskit_debug_file_path, "a");
     if (fp)
     {
       fprintf(fp,
@@ -2195,7 +2432,7 @@ static void swell_accesskit_debug_reset_file(void)
 {
   if (!g_accesskit_debug || g_accesskit_debug_file_ready) return;
 
-  FILE *fp = fopen(g_accesskit_debug_file_path, "w");
+  FILE *fp = WDL_fopenA(g_accesskit_debug_file_path, "w");
   if (fp)
   {
     fprintf(fp, "SWELL AccessKit debug log\n");
@@ -2353,6 +2590,31 @@ static HWND swell_accesskit_find_collection_for_synthetic_node(HWND parent, uint
   return NULL;
 }
 
+static const SWELL_AccessibilityCustomProvider *swell_accesskit_find_custom_provider_for_node(HWND root, uint64_t node_id, uint64_t *provider_id)
+{
+  SWELL_AccessKitCustomProviderEntry *entry = g_accesskit_custom_providers;
+  while (entry)
+  {
+    const SWELL_AccessibilityCustomProvider *provider = entry->provider;
+    if (provider && provider->hwnd && swell_accesskit_contains_hwnd(root,provider->hwnd))
+    {
+      const int count = swell_accesskit_custom_provider_node_count(provider);
+      for (int i = 0; i < count; ++i)
+      {
+        SWELL_AccessibilityCustomNode custom_node;
+        if (!swell_accesskit_get_custom_node(provider,i,&custom_node)) continue;
+        if (swell_accesskit_custom_id_for_hwnd(provider->hwnd,custom_node.id) == node_id)
+        {
+          if (provider_id) *provider_id = custom_node.id;
+          return provider;
+        }
+      }
+    }
+    entry = entry->next;
+  }
+  return NULL;
+}
+
 static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *state, const swell_accesskit_action_request *action)
 {
   if (!state || !action) return false;
@@ -2431,6 +2693,41 @@ static bool swell_accesskit_apply_synthetic_action(SWELL_AccessKitWindowState *s
       }
       state->dirty = true;
       return true;
+    }
+    return true;
+  }
+
+  if (swell_accesskit_node_has_namespace(action->target_node, SWELL_ACCESSKIT_SYNTHETIC_CUSTOM))
+  {
+    uint64_t provider_id = 0;
+    const SWELL_AccessibilityCustomProvider *provider = swell_accesskit_find_custom_provider_for_node(state->hwnd,action->target_node,&provider_id);
+    if (!provider)
+    {
+      swell_accesskit_debug_log_missing_reference(state->hwnd,"custom_action_target",state->hwnd ? swell_accesskit_node_id_for_hwnd(state->hwnd) : 0,action->target_node);
+      return true;
+    }
+
+    SWELL_AccessibilityCustomNode node;
+    if (!swell_accesskit_get_custom_node_by_id(provider,provider_id,&node)) return true;
+    const int provider_action = swell_accesskit_custom_action_to_provider_action(action->action);
+    if (provider_action && provider->do_action && (node.action_mask & (unsigned int)provider_action))
+    {
+      SWELL_AccessibilityCustomActionData data = { SWELL_ACCESSIBILITY_ACTION_DATA_NONE, NULL, 0.0 };
+      if (action->action == SWELL_ACCESSKIT_ACTION_SET_VALUE)
+      {
+        if (action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_STRING)
+        {
+          data.data_kind = SWELL_ACCESSIBILITY_ACTION_DATA_STRING;
+          data.string_value = action->string_value;
+        }
+        else if (action->data_kind == SWELL_ACCESSKIT_ACTION_DATA_NUMERIC)
+        {
+          data.data_kind = SWELL_ACCESSIBILITY_ACTION_DATA_NUMERIC;
+          data.numeric_value = action->numeric_value;
+        }
+      }
+      provider->do_action(provider,provider_id,provider_action,&data);
+      state->dirty = true;
     }
     return true;
   }
@@ -2610,6 +2907,7 @@ void swell_accesskit_window_destroyed(HWND hwnd)
     g_accesskit_announcement_text.clear();
     g_accesskit_announcement_export_text.clear();
   }
+  swell_accesskit_remove_custom_provider_locked(hwnd ? hwnd : root);
   g_accesskit_mutex.Leave();
 
   if (!state) return;
@@ -2731,6 +3029,34 @@ void swell_accesskit_announce(const char *utf8_message, int interrupt)
   target->dirty = true;
 }
 
+void swell_accesskit_set_custom_provider(const SWELL_AccessibilityCustomProvider *provider)
+{
+  if (!provider || !provider->hwnd) return;
+
+  WDL_MutexLock lock(&g_accesskit_mutex);
+  swell_accesskit_remove_custom_provider_locked(provider->hwnd);
+  if (provider->version >= 1 && provider->get_node_count && provider->get_node)
+  {
+    SWELL_AccessKitCustomProviderEntry *entry = (SWELL_AccessKitCustomProviderEntry *)calloc(1,sizeof(*entry));
+    if (entry)
+    {
+      entry->hwnd = provider->hwnd;
+      entry->provider = provider;
+      entry->next = g_accesskit_custom_providers;
+      g_accesskit_custom_providers = entry;
+    }
+  }
+
+  HWND root = swell_accesskit_get_root(provider->hwnd);
+  SWELL_AccessKitWindowState *state = swell_accesskit_find_window_state_locked(root);
+  if (state) state->dirty = true;
+}
+
+void swell_accesskit_notify_custom_provider_changed(HWND hwnd)
+{
+  swell_accesskit_window_changed(hwnd);
+}
+
 #else
 
 void swell_accesskit_window_created(HWND hwnd) { (void)hwnd; }
@@ -2739,6 +3065,8 @@ void swell_accesskit_window_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_focus_changed(void) {}
 void swell_accesskit_pump(void) {}
 void swell_accesskit_announce(const char *utf8_message, int interrupt) { (void)utf8_message; (void)interrupt; }
+void swell_accesskit_set_custom_provider(const SWELL_AccessibilityCustomProvider *provider) { (void)provider; }
+void swell_accesskit_notify_custom_provider_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text)
 {
   (void)event_type;

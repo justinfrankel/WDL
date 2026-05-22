@@ -13,6 +13,7 @@
 - The sibling AccessKit dependency now reports non-menu widget mnemonics to AT-SPI with the conventional Alt modifier while preserving bare posted-menu mnemonics.
 - SWELL dialog access-key dispatch now handles Alt+mnemonic labels and buttons on Linux, with static-label mnemonics limited to their intended labelled target.
 - Generic SWELL trackbars now support keyboard value changes for arrow, page, Home, and End keys.
+- Provider-owned AccessKit custom nodes can now be registered for owner-drawn SWELL child windows through `SWELL_ExtendedAPI`, enabling REAPER-side semantic children for custom toolbar/transport/master-surface regions without changing keyboard tab order.
 - Build artifacts are ignored by the repo root `.gitignore`.
 - A REAPER missing-control audit has been captured in `reaper-accesskit-missing-control-audit.md`. The highest-priority finding is that several REAPER dialogs expose expected AT-SPI nodes but render blank and report zero-sized child extents.
 
@@ -144,6 +145,7 @@
 - Slider -> `SLIDER`
 - Progress -> `PROGRESS_INDICATOR`
 - Group box -> `GROUP`
+- Provider custom node -> `LABEL`, `BUTTON`, `DEFAULT_BUTTON`, `CHECK_BOX`, `RADIO_BUTTON`, `SLIDER`, `PROGRESS_INDICATOR`, or `GROUP`
 - Dropdown-list combo box -> `COMBO_BOX`
 - Editable combo box -> `EDITABLE_COMBO_BOX` with synthetic `TEXT_RUN`
 - Window menu bar -> synthetic `MENU_BAR`
@@ -228,6 +230,7 @@
    - Model visible toolbar and transport buttons as semantic actionable nodes only when their action target can be resolved.
    - Expose master controls, faders, knobs, meters, rate/time/status labels, and similar custom controls with roles/value metadata that match their behavior.
    - Keep decorative panels, separators, and empty arrange/background regions non-focusable and non-actionable.
+   - Completed in this chunk: SWELL now exposes a provider-owned custom accessibility node API and routes provider actions. The sample app exports a custom group with button, checkbox, slider, and status label nodes, and an AT-SPI action probe invoked the sample custom button successfully. REAPER still needs app-side provider callbacks for its main-window custom surfaces.
 
 5. Validate with the current integrity checks and a REAPER smoke pass.
    - Build with `make -C WDL/swell DEBUG=1 -j2`.
@@ -311,6 +314,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, and `git diff --check` passed after tightening dialog mnemonic targets.
 - A timed `SWELL_ACCESSKIT_DEBUG=1` sample launch confirmed the progress indicator keeps its `labelled_by` relation without advertising an unusable access key; interactive Orca keypress coverage remains part of the broader manual AT-SPI pass.
 - `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, and `git diff --check` passed after the generic trackbar keyboard work. An automated AT-SPI/XTest sample pass focused the Demo slider and confirmed Right, Left, Home, End, PageDown, and PageUp changed the exposed value through `5 -> 6 -> 5 -> 0 -> 10 -> 9 -> 10`; the debug log showed no missing, invalid, fallback, or stale AccessKit diagnostics.
+- `make -C WDL/swell DEBUG=1 -j2`, `make -C WDL/swell/sample_project DEBUG=1`, `cargo build --release --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml`, and `git diff --check` passed after adding provider-owned custom nodes. A timed `SWELL_ACCESSKIT_DEBUG=1` sample launch exported the custom group/button/checkbox/slider/status label with nonzero bounds, and a pyatspi action probe invoked the custom button; the debug log showed no missing, invalid, fallback, stale, failure, or panic diagnostics.
 
 ## Sample App Coverage
 
@@ -323,6 +327,7 @@ cargo fmt --manifest-path WDL/swell/rust/accesskit_shim/Cargo.toml --check
 - The sample app now includes:
   - a dropdown-list combo with selected value
   - an editable combo with selectable/editable text
+  - a provider-owned custom accessibility surface with button, checkbox, slider, and status label nodes
   - a single-select listbox
   - a multiselect listbox with independent selected rows
   - a report list

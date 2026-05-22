@@ -154,7 +154,7 @@ static void swell_gdk_debug_log_geometry(HWND hwnd, const char *kind, const RECT
 {
   if (!swell_gdk_accesskit_debug_enabled() || !hwnd) return;
 
-  FILE *fp = fopen("/tmp/swell-accesskit-debug.log","a");
+  FILE *fp = WDL_fopenA("/tmp/swell-accesskit-debug.log","a");
   if (!fp) return;
 
   fprintf(fp,
