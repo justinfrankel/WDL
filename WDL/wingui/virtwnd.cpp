@@ -635,6 +635,367 @@ WDL_VWnd::~WDL_VWnd()
   if (m__iaccess) m__iaccess->Release();
 }
 
+#if defined(SWELL_TARGET_GDK)
+
+static WDL_PtrList<WDL_VWnd_IAccessibleBridge> s_vwnd_accesskit_bridges;
+
+static uint64_t WDL_VWnd_AccessKitNodeId(WDL_VWnd *vwnd)
+{
+  const uint64_t id = (uint64_t)(uintptr_t)vwnd & 0xffffffffu;
+  return id ? id : 1;
+}
+
+class WDL_VWnd_AccessKitBridge : public WDL_VWnd_IAccessibleBridge
+{
+public:
+  WDL_VWnd_AccessKitBridge(WDL_VWnd *root, HWND hwnd)
+  {
+    m_root = root;
+    memset(&m_provider,0,sizeof(m_provider));
+    m_provider.version = 1;
+    m_provider.hwnd = hwnd;
+    m_provider.user_data = this;
+    m_provider.get_node_count = GetNodeCount;
+    m_provider.get_node = GetNode;
+    m_provider.do_action = DoAction;
+    s_vwnd_accesskit_bridges.Add(this);
+    Register();
+  }
+
+  virtual void Release()
+  {
+    Unregister();
+    s_vwnd_accesskit_bridges.Delete(s_vwnd_accesskit_bridges.Find(this));
+    if (m_root && m_root->GetAccessibilityBridge() == this)
+      m_root->SetAccessibilityBridge(NULL);
+    m_root = NULL;
+    delete this;
+  }
+
+  virtual void OnFocused() { NotifyChanged(); }
+  virtual void OnStateChange() { NotifyChanged(); }
+
+private:
+  static bool IsVisibleNode(WDL_VWnd *vwnd)
+  {
+    if (!vwnd || !vwnd->IsVisible()) return false;
+    RECT r;
+    vwnd->GetPosition(&r);
+    return r.right > r.left && r.bottom > r.top;
+  }
+
+  static bool IsKnownType(const char *type)
+  {
+    return type && (!strcmp(type,"vwnd_iconbutton") ||
+                    !strcmp(type,"vwnd_statictext") ||
+                    !strcmp(type,"vwnd_slider") ||
+                    !strcmp(type,"vwnd_combobox") ||
+                    !strcmp(type,"vwnd_tabctrl_child") ||
+                    !strcmp(type,"vwnd_tabctrl_proxy") ||
+                    !strcmp(type,"vwnd_listbox"));
+  }
+
+  static bool HasText(WDL_VWnd *vwnd)
+  {
+    if (!vwnd) return false;
+    const char *desc = vwnd->GetAccessDesc();
+    if (desc && *desc) return true;
+    const char *type = vwnd->GetType();
+    if (!type) return false;
+    if (!strcmp(type,"vwnd_iconbutton"))
+    {
+      const char *label = ((WDL_VirtualIconButton *)vwnd)->GetTextLabel();
+      return label && *label;
+    }
+    if (!strcmp(type,"vwnd_statictext"))
+    {
+      const char *text = ((WDL_VirtualStaticText *)vwnd)->GetText();
+      return text && *text;
+    }
+    if (!strcmp(type,"vwnd_combobox"))
+    {
+      WDL_VirtualComboBox *combo = (WDL_VirtualComboBox *)vwnd;
+      const char *item = combo->GetItem(combo->GetCurSel());
+      return item && *item;
+    }
+    return false;
+  }
+
+  static bool HasExportableDescendant(WDL_VWnd *vwnd)
+  {
+    if (!vwnd) return false;
+    const int count = vwnd->GetNumChildren();
+    for (int i = 0; i < count; ++i)
+    {
+      WDL_VWnd *child = vwnd->EnumChildren(i);
+      if (IsExportable(child) || HasExportableDescendant(child)) return true;
+    }
+    return false;
+  }
+
+  static bool IsExportable(WDL_VWnd *vwnd)
+  {
+    if (!IsVisibleNode(vwnd)) return false;
+    return !vwnd->GetParent() ||
+        IsKnownType(vwnd->GetType()) ||
+        HasText(vwnd) ||
+        HasExportableDescendant(vwnd);
+  }
+
+  static int CountExported(WDL_VWnd *vwnd)
+  {
+    if (!vwnd) return 0;
+    int count = IsExportable(vwnd) ? 1 : 0;
+    const int child_count = vwnd->GetNumChildren();
+    for (int i = 0; i < child_count; ++i)
+      count += CountExported(vwnd->EnumChildren(i));
+    return count;
+  }
+
+  static uint64_t NearestExportedParentId(WDL_VWnd *vwnd)
+  {
+    for (WDL_VWnd *parent = vwnd ? vwnd->GetParent() : NULL; parent; parent = parent->GetParent())
+    {
+      if (IsExportable(parent)) return WDL_VWnd_AccessKitNodeId(parent);
+    }
+    return 0;
+  }
+
+  void MakeLabel(WDL_VWnd *vwnd)
+  {
+    m_label.Set("");
+    if (!vwnd) return;
+    const char *type = vwnd->GetType();
+    const char *text = NULL;
+    const char *desc = vwnd->GetAccessDesc();
+
+    if (type && !strcmp(type,"vwnd_iconbutton"))
+      text = ((WDL_VirtualIconButton *)vwnd)->GetTextLabel();
+    else if (type && !strcmp(type,"vwnd_statictext"))
+      text = ((WDL_VirtualStaticText *)vwnd)->GetText();
+    else if (type && !strcmp(type,"vwnd_combobox"))
+    {
+      WDL_VirtualComboBox *combo = (WDL_VirtualComboBox *)vwnd;
+      text = combo->GetItem(combo->GetCurSel());
+    }
+
+    if (desc && *desc && text && *text)
+    {
+      if (type && !strcmp(type,"vwnd_iconbutton"))
+        m_label.SetFormatted(1024,"%.500s %.500s",text,desc);
+      else
+        m_label.SetFormatted(1024,"%.500s %.500s",desc,text);
+    }
+    else if (text && *text)
+      m_label.Set(text);
+    else if (desc && *desc)
+      m_label.Set(desc);
+  }
+
+  static unsigned int RoleFor(WDL_VWnd *vwnd)
+  {
+    if (!vwnd) return 0;
+    const char *type = vwnd->GetType();
+    if (type && !strcmp(type,"vwnd_iconbutton"))
+    {
+      WDL_VirtualIconButton *button = (WDL_VirtualIconButton *)vwnd;
+      if (!button->GetIsButton()) return SWELL_ACCESSIBILITY_ROLE_LABEL;
+      return button->GetCheckState() >= 0 ? SWELL_ACCESSIBILITY_ROLE_CHECK_BOX : SWELL_ACCESSIBILITY_ROLE_BUTTON;
+    }
+    if (type && !strcmp(type,"vwnd_statictext")) return SWELL_ACCESSIBILITY_ROLE_LABEL;
+    if (type && !strcmp(type,"vwnd_slider")) return SWELL_ACCESSIBILITY_ROLE_SLIDER;
+    if (type && (!strcmp(type,"vwnd_combobox") || !strcmp(type,"vwnd_tabctrl_child")))
+      return SWELL_ACCESSIBILITY_ROLE_BUTTON;
+    return SWELL_ACCESSIBILITY_ROLE_GROUP;
+  }
+
+  bool FillNode(WDL_VWnd *vwnd, SWELL_AccessibilityCustomNode *node)
+  {
+    if (!vwnd || !node) return false;
+    memset(node,0,sizeof(*node));
+    node->id = WDL_VWnd_AccessKitNodeId(vwnd);
+    node->parent_id = NearestExportedParentId(vwnd);
+    node->role = RoleFor(vwnd);
+    vwnd->GetPositionInTopVWnd(&node->bounds);
+
+    MakeLabel(vwnd);
+    const char *type = vwnd->GetType();
+    if (node->role == SWELL_ACCESSIBILITY_ROLE_LABEL)
+      node->value = m_label.Get();
+    else
+      node->label = m_label.Get();
+
+    if (type && !strcmp(type,"vwnd_iconbutton"))
+    {
+      WDL_VirtualIconButton *button = (WDL_VirtualIconButton *)vwnd;
+      if (!button->GetEnabled()) node->flags |= SWELL_ACCESSIBILITY_NODE_DISABLED;
+      if (button->GetCheckState() > 0) node->flags |= SWELL_ACCESSIBILITY_NODE_CHECKED;
+      if (button->GetIsButton()) node->action_mask |= SWELL_ACCESSIBILITY_ACTION_CLICK;
+    }
+    else if (type && !strcmp(type,"vwnd_slider"))
+    {
+      WDL_VirtualSlider *slider = (WDL_VirtualSlider *)vwnd;
+      int minr=0, maxr=0;
+      slider->GetRange(&minr,&maxr,NULL);
+      node->flags |= SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_MIN_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_MAX_NUMERIC_VALUE |
+          SWELL_ACCESSIBILITY_NODE_HAS_NUMERIC_VALUE_STEP |
+          (slider->GetIsVert() ? SWELL_ACCESSIBILITY_NODE_VERTICAL : SWELL_ACCESSIBILITY_NODE_HORIZONTAL);
+      node->numeric_value = slider->GetSliderPosition();
+      node->min_numeric_value = minr;
+      node->max_numeric_value = maxr;
+      node->numeric_value_step = 1.0;
+      node->action_mask |= SWELL_ACCESSIBILITY_ACTION_INCREMENT |
+          SWELL_ACCESSIBILITY_ACTION_DECREMENT |
+          SWELL_ACCESSIBILITY_ACTION_SET_VALUE;
+      char value[512];
+      if (slider->GetAccessValueDesc(value,sizeof(value)) && value[0])
+      {
+        m_value.Set(value);
+        node->value = m_value.Get();
+      }
+    }
+    else if (type && (!strcmp(type,"vwnd_combobox") ||
+                      !strcmp(type,"vwnd_tabctrl_child") ||
+                      !strcmp(type,"vwnd_statictext")))
+    {
+      node->action_mask |= SWELL_ACCESSIBILITY_ACTION_CLICK;
+    }
+    return node->id && node->role;
+  }
+
+  bool FindByIndex(WDL_VWnd *vwnd, int target_index, int *index, SWELL_AccessibilityCustomNode *node)
+  {
+    if (!vwnd || !index) return false;
+    if (IsExportable(vwnd))
+    {
+      if (*index == target_index) return FillNode(vwnd,node);
+      ++*index;
+    }
+    const int count = vwnd->GetNumChildren();
+    for (int i = 0; i < count; ++i)
+      if (FindByIndex(vwnd->EnumChildren(i),target_index,index,node))
+        return true;
+    return false;
+  }
+
+  static WDL_VWnd *FindById(WDL_VWnd *vwnd, uint64_t node_id)
+  {
+    if (!vwnd) return NULL;
+    if (WDL_VWnd_AccessKitNodeId(vwnd) == node_id) return vwnd;
+    const int count = vwnd->GetNumChildren();
+    for (int i = 0; i < count; ++i)
+    {
+      WDL_VWnd *found = FindById(vwnd->EnumChildren(i),node_id);
+      if (found) return found;
+    }
+    return NULL;
+  }
+
+  void Register()
+  {
+    SWELL_AccessibilitySetCustomProviderFn set_provider =
+        (SWELL_AccessibilitySetCustomProviderFn)SWELL_ExtendedAPI("ACCESSIBILITY_SET_CUSTOM_PROVIDER", NULL);
+    if (set_provider) set_provider(&m_provider);
+  }
+
+  void Unregister()
+  {
+    SWELL_AccessibilitySetCustomProviderFn set_provider =
+        (SWELL_AccessibilitySetCustomProviderFn)SWELL_ExtendedAPI("ACCESSIBILITY_SET_CUSTOM_PROVIDER", NULL);
+    if (set_provider)
+    {
+      SWELL_AccessibilityCustomProvider provider = m_provider;
+      provider.get_node_count = NULL;
+      provider.get_node = NULL;
+      set_provider(&provider);
+    }
+  }
+
+  void NotifyChanged()
+  {
+    SWELL_AccessibilityNotifyChangedFn notify =
+        (SWELL_AccessibilityNotifyChangedFn)SWELL_ExtendedAPI("ACCESSIBILITY_NOTIFY_CHANGED", NULL);
+    if (notify && m_provider.hwnd) notify(m_provider.hwnd);
+  }
+
+  static int GetNodeCount(const SWELL_AccessibilityCustomProvider *provider)
+  {
+    WDL_VWnd_AccessKitBridge *bridge = provider ? (WDL_VWnd_AccessKitBridge *)provider->user_data : NULL;
+    return bridge && bridge->m_root ? CountExported(bridge->m_root) : 0;
+  }
+
+  static bool GetNode(const SWELL_AccessibilityCustomProvider *provider, int index, SWELL_AccessibilityCustomNode *node)
+  {
+    WDL_VWnd_AccessKitBridge *bridge = provider ? (WDL_VWnd_AccessKitBridge *)provider->user_data : NULL;
+    int cur = 0;
+    return bridge && bridge->m_root && bridge->FindByIndex(bridge->m_root,index,&cur,node);
+  }
+
+  static bool DoAction(const SWELL_AccessibilityCustomProvider *provider, uint64_t node_id, int action, const SWELL_AccessibilityCustomActionData *data)
+  {
+    WDL_VWnd_AccessKitBridge *bridge = provider ? (WDL_VWnd_AccessKitBridge *)provider->user_data : NULL;
+    WDL_VWnd *vwnd = bridge ? FindById(bridge->m_root,node_id) : NULL;
+    if (!vwnd) return false;
+
+    const char *type = vwnd->GetType();
+    if (type && !strcmp(type,"vwnd_slider"))
+    {
+      WDL_VirtualSlider *slider = (WDL_VirtualSlider *)vwnd;
+      int value = slider->GetSliderPosition();
+      if (action == SWELL_ACCESSIBILITY_ACTION_INCREMENT) ++value;
+      else if (action == SWELL_ACCESSIBILITY_ACTION_DECREMENT) --value;
+      else if (action == SWELL_ACCESSIBILITY_ACTION_SET_VALUE && data && data->data_kind == SWELL_ACCESSIBILITY_ACTION_DATA_NUMERIC)
+        value = (int)(data->numeric_value + 0.5);
+      else return false;
+      slider->SetSliderPosition(value);
+      slider->RequestRedraw(NULL);
+      if (bridge) bridge->NotifyChanged();
+      return true;
+    }
+
+    if (action != SWELL_ACCESSIBILITY_ACTION_CLICK) return false;
+    RECT r;
+    vwnd->GetPosition(&r);
+    const int x = (r.right - r.left) / 2;
+    const int y = (r.bottom - r.top) / 2;
+    vwnd->OnMouseDown(x,y);
+    vwnd->OnMouseUp(x,y);
+    if (bridge) bridge->NotifyChanged();
+    return true;
+  }
+
+  WDL_VWnd *m_root;
+  SWELL_AccessibilityCustomProvider m_provider;
+  WDL_FastString m_label;
+  WDL_FastString m_value;
+};
+
+static bool WDL_VWnd_AccessKitIsBridge(WDL_VWnd_IAccessibleBridge *bridge)
+{
+  return bridge && s_vwnd_accesskit_bridges.Find(bridge) >= 0;
+}
+
+#endif
+
+void WDL_VWnd::SetRealParent(HWND par)
+{
+  if (m_realparent == par) return;
+  m_realparent = par;
+#if defined(SWELL_TARGET_GDK)
+  if (m_parent) return;
+  WDL_VWnd_IAccessibleBridge *bridge = GetAccessibilityBridge();
+  if (bridge && WDL_VWnd_AccessKitIsBridge(bridge))
+  {
+    bridge->Release();
+    bridge = NULL;
+  }
+  if (par && !bridge)
+    SetAccessibilityBridge(new WDL_VWnd_AccessKitBridge(this,par));
+#endif
+}
+
 int WDL_VWnd::GSC(int a)
 {
   return m_curPainter ? m_curPainter->GSC(a) : GetSysColor(a);
