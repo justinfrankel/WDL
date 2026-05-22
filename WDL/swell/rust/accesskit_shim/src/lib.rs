@@ -324,6 +324,14 @@ fn map_role(value: u32) -> Role {
     }
 }
 
+fn map_effective_role(value: u32, has_children: bool) -> Role {
+    if value == 0 && has_children {
+        Role::Group
+    } else {
+        map_role(value)
+    }
+}
+
 fn map_action(value: Action) -> u32 {
     match value {
         Action::Focus => ACTION_FOCUS,
@@ -450,7 +458,8 @@ unsafe fn build_tree_update(
     let mut nodes = Vec::with_capacity(raw_nodes.len());
 
     for raw in raw_nodes {
-        let mut node = Node::new(map_role(raw.role));
+        let child_ids = children_from_ffi(raw)?;
+        let mut node = Node::new(map_effective_role(raw.role, !child_ids.is_empty()));
         if let Some(label) = string_from_ffi(&raw.label) {
             node.set_label(label);
         }
@@ -582,7 +591,6 @@ unsafe fn build_tree_update(
             node.add_child_action(Action::ScrollIntoView);
         }
 
-        let child_ids = children_from_ffi(raw)?;
         if !child_ids.is_empty() {
             node.set_children(child_ids);
         }
@@ -1093,6 +1101,38 @@ mod tests {
         assert!(node.supports_action(Action::Expand));
         assert!(node.supports_action(Action::Collapse));
         assert!(node.supports_action(Action::ScrollIntoView));
+    }
+
+    #[test]
+    fn maps_unknown_containers_to_group() {
+        let children = [2_u64];
+        let mut root = empty_node(1, 0);
+        root.child_count = children.len();
+        root.children = children.as_ptr();
+        let child = empty_node(2, ROLE_LABEL);
+        let nodes = [root, child];
+        let snapshot = swell_accesskit_tree_snapshot {
+            root_id: 1,
+            focus_id: 1,
+            node_count: nodes.len(),
+            nodes: nodes.as_ptr(),
+        };
+        let update = unsafe { build_tree_update(TreeId::ROOT, &snapshot) }.unwrap();
+        assert_eq!(update.nodes[0].1.role(), Role::Group);
+    }
+
+    #[test]
+    fn keeps_empty_unknown_nodes_unknown() {
+        let root = empty_node(1, 0);
+        let nodes = [root];
+        let snapshot = swell_accesskit_tree_snapshot {
+            root_id: 1,
+            focus_id: 1,
+            node_count: nodes.len(),
+            nodes: nodes.as_ptr(),
+        };
+        let update = unsafe { build_tree_update(TreeId::ROOT, &snapshot) }.unwrap();
+        assert_eq!(update.nodes[0].1.role(), Role::Unknown);
     }
 
     #[test]

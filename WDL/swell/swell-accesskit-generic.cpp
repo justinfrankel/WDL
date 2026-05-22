@@ -1138,6 +1138,12 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
   }
 }
 
+static void swell_accesskit_apply_container_fallback(SWELL_AccessKitOwnedNode *node)
+{
+  if (node && node->pod.role == SWELL_ACCESSKIT_ROLE_UNKNOWN && node->pod.child_count > 0)
+    node->pod.role = SWELL_ACCESSKIT_ROLE_GROUP;
+}
+
 static int swell_accesskit_count_direct_visible_children(HWND hwnd)
 {
   int count = swell_accesskit_hwnd_has_text_run(hwnd) ? swell_accesskit_multiline_text_run_count(hwnd) : 0;
@@ -1415,6 +1421,7 @@ static void swell_accesskit_populate_node(HWND hwnd, HWND focused, SWELL_AccessK
   }
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+  swell_accesskit_apply_container_fallback(node);
 
   if (hwnd == focused) node->pod.action_mask |= 0;
 }
@@ -2049,6 +2056,7 @@ static void swell_accesskit_populate_custom_node(const SWELL_AccessibilityCustom
   }
   node->pod.child_count = node->children_storage.size();
   node->pod.children = node->children_storage.empty() ? NULL : node->children_storage.data();
+  swell_accesskit_apply_container_fallback(node);
 }
 
 static void swell_accesskit_snapshot_build_recursive(SWELL_AccessKitOwnedSnapshot *snapshot, HWND hwnd, HWND focused)
