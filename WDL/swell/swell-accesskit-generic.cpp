@@ -643,6 +643,7 @@ static void swell_accesskit_update_root_bounds(SWELL_AccessKitWindowState *state
 
 static const SWELL_AccessibilityCustomProvider *swell_accesskit_find_custom_provider(HWND hwnd)
 {
+  swell_accesskit_reaper_vwnd_ensure_provider(hwnd);
   SWELL_AccessKitCustomProviderEntry *entry = g_accesskit_custom_providers;
   while (entry)
   {
@@ -3073,6 +3074,7 @@ void swell_accesskit_window_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_focus_changed(void) {}
 void swell_accesskit_pump(void) {}
 void swell_accesskit_announce(const char *utf8_message, int interrupt) { (void)utf8_message; (void)interrupt; }
+void swell_accesskit_reaper_vwnd_ensure_provider(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_set_custom_provider(const SWELL_AccessibilityCustomProvider *provider) { (void)provider; }
 void swell_accesskit_notify_custom_provider_changed(HWND hwnd) { (void)hwnd; }
 void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text)
