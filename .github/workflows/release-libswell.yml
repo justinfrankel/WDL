@@ -16,12 +16,12 @@ jobs:
 
     steps:
       - name: Checkout WDL
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: src/WDL
 
       - name: Checkout AccessKit dependency
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: RDMurray/accesskit
           ref: swell-fixes
