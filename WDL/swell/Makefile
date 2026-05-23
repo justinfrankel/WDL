@@ -101,7 +101,6 @@ SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
              swell-generic-headless.o swell-generic-gdk.o swell-accesskit-generic.o \
-             swell-accesskit-reaper-vwnd-hack.o \
              swell-appstub-generic.o swell-modstub-generic.o 
 
 LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
@@ -199,7 +198,6 @@ swell-miscdlg-generic.o: $(SWELL_HEADERS)
 swell-modstub-generic.o: $(SWELL_HEADERS)
 swell-appstub-generic.o: $(SWELL_HEADERS)
 swell-accesskit-generic.o: $(SWELL_HEADERS) swell-accesskit-shim.h
-swell-accesskit-reaper-vwnd-hack.o: $(SWELL_HEADERS)
 
 ifndef NOACCESSKIT
 libSwell$(DLL_EXT): $(ACCESSKIT_SHIM_LIB)

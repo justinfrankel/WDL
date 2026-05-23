@@ -1028,7 +1028,6 @@ void swell_accesskit_focus_changed(void);
 void swell_accesskit_pump(void);
 void swell_accesskit_keyboard_event(uint32_t event_type, uint32_t keyval, uint32_t hardware_keycode, uint32_t modifiers, int32_t timestamp, const char *event_string, bool is_text);
 void swell_accesskit_announce(const char *utf8_message, int interrupt);
-void swell_accesskit_reaper_vwnd_ensure_provider(HWND hwnd);
 void swell_accesskit_set_custom_provider(const SWELL_AccessibilityCustomProvider *provider);
 void swell_accesskit_notify_custom_provider_changed(HWND hwnd);
 int swell_accesskit_get_active_menu_count(void);
