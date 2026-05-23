@@ -1,0 +1,99 @@
+name: Release libSwell.so
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and publish libSwell.so
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout WDL
+        uses: actions/checkout@v4
+        with:
+          path: src/WDL
+
+      - name: Checkout AccessKit dependency
+        uses: actions/checkout@v4
+        with:
+          repository: RDMurray/accesskit
+          ref: swell-fixes
+          path: src/accesskit
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libgtk-3-dev \
+            libfreetype6-dev \
+            libfontconfig1-dev \
+            libgl1-mesa-dev
+
+      - name: Use stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Build release libSwell.so
+        run: make -C src/WDL/WDL/swell -j2
+
+      - name: Verify libSwell.so
+        run: |
+          test -s src/WDL/WDL/swell/libSwell.so
+          file src/WDL/WDL/swell/libSwell.so
+          ldd src/WDL/WDL/swell/libSwell.so
+
+      - name: Publish latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          repo="RDMurray/WDL"
+          tag="latest"
+          artifact="src/WDL/WDL/swell/libSwell.so"
+          short_sha="$(git -C src/WDL rev-parse --short HEAD)"
+          full_sha="$(git -C src/WDL rev-parse HEAD)"
+          title="Latest libSwell.so (${short_sha})"
+          notes_file="${RUNNER_TEMP}/libswell-release-notes.md"
+
+          cat > "${notes_file}" <<EOF
+          Release build of libSwell.so from main commit ${full_sha}.
+
+          Direct download:
+          https://github.com/RDMurray/WDL/releases/latest/download/libSwell.so
+          EOF
+
+          git -C src/WDL config user.name "github-actions[bot]"
+          git -C src/WDL config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C src/WDL tag -f "${tag}" "${full_sha}"
+          git -C src/WDL push -f origin "refs/tags/${tag}"
+
+          if gh release view "${tag}" --repo "${repo}" >/dev/null 2>&1; then
+            gh release edit "${tag}" \
+              --repo "${repo}" \
+              --title "${title}" \
+              --notes-file "${notes_file}" \
+              --target "${full_sha}" \
+              --latest
+          else
+            gh release create "${tag}" \
+              --repo "${repo}" \
+              --title "${title}" \
+              --notes-file "${notes_file}" \
+              --target "${full_sha}" \
+              --latest
+          fi
+
+          gh release upload "${tag}" "${artifact}" --repo "${repo}" --clobber
