@@ -361,6 +361,11 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
   hwnd->Retain();
 
   bool already_called_proc = false;
+  /*
+  * If we want to make 'REAPERhfader' sliders screen reader announceable, we must be the first to intercept 'TBM_'* messages
+  * and save the value to 'm_private_accessible_data' based on this. We could have used 'TBM_GETRANGE' in AccessKit bridge and without this mess, if Cockos hadn't forgotten to add these message types to the layer.
+  * They also don't have 'TBM_GETRANGEMIN' && 'TBM_GETRANGEMAX'.
+  */
   if (!strcmp(hwnd->m_classname, "REAPERhfader") || !strcmp(hwnd->m_classname, "msctls_trackbar32"))
   {
     switch (msg)
@@ -391,6 +396,7 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
               {
                 if (wp)
                 {
+                  // Calling a custom WND proc right now, because we want to get the latest value for the screen reader announcement.
                   wp(hwnd,msg,wParam,lParam);
                   already_called_proc = true;
                 }
@@ -6405,6 +6411,11 @@ HWND SWELL_MakeControl(const char *cname, int idx, const char *classname, int st
       {
         if (exstyle) SetWindowLong(hhh,GWL_EXSTYLE,exstyle);
 
+        /*
+        * There is already a fallback to the Windows trackbar, but it doesn't get to that, because the
+        * current condition branch is triggered and the REAPER makes its own custom control.
+        * Therefore, we allocate memory in order to later catch value/range set messages to store it here.
+        */
         if (!stricmp(classname,"REAPERhfader")||!stricmp(classname,"msctls_trackbar32"))
         {
           hhh->m_accessible_private_data = (INT_PTR) calloc(3,sizeof(int)); // pos, range, tic

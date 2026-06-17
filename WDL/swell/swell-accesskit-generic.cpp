@@ -1110,6 +1110,12 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
 {
   if (!hwnd || !hwnd->m_classname || !node) return;
 
+  /*
+  * The Microsoft documentation says that there is a 'TBM_GETRANGEMIN', 'TBM_GETRANGEMAX' etc.
+  * However, SWELL does not have such message types, it only has 'TBM_SETRANGE'.
+  * This means that we have to catch the custom control's messages before they reach its callback.
+  * The 'SendMessage' implementation puts this data in 'm_accessible_private_data', so we look if the usual 'm_private_data' is null, slip in 'm_accessible_private_data'.
+  */
   INT_PTR private_data = hwnd->m_private_data ? hwnd->m_private_data : hwnd->m_accessible_private_data;
   if (!private_data) return;
 
