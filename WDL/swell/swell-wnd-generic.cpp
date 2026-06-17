@@ -376,6 +376,29 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (hwnd->m_accessible_private_data) ((int *)hwnd->m_accessible_private_data)[2] = (int) lParam;
         swell_accesskit_window_changed(hwnd);
         break;
+      case WM_KEYDOWN:
+        switch (wParam)
+          {
+            case VK_LEFT:
+            case VK_DOWN:
+            case VK_RIGHT:
+            case VK_UP:
+            case VK_NEXT:
+            case VK_PRIOR:
+            case VK_HOME:
+            case VK_END:
+              {
+                int current_value = wp ? wp(hwnd, TBM_GETPOS, 0, 0) : 0;
+                if (hwnd->m_accessible_private_data && *(int *) hwnd->m_accessible_private_data != current_value)
+                {
+                  * (int*) (hwnd->m_accessible_private_data)  = current_value;
+                  swell_accesskit_window_changed(hwnd);
+                }
+              }
+              break;
+            default: break;
+          }
+        break;
       case WM_DESTROY:
         if (hwnd->m_accessible_private_data)
         {
