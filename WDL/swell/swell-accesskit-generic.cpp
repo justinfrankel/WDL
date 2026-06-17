@@ -1108,11 +1108,14 @@ static void swell_accesskit_fill_button_state(HWND hwnd, SWELL_AccessKitOwnedNod
 
 static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNode *node)
 {
-  if (!hwnd || !node || !hwnd->m_private_data || !hwnd->m_classname) return;
+  if (!hwnd || !hwnd->m_classname || !node) return;
 
+  INT_PTR private_data = hwnd->m_private_data ? hwnd->m_private_data : hwnd->m_accessible_private_data;
+  if (!private_data) return;
+
+  int *state = (int*) private_data;
   if (!strcmp(hwnd->m_classname, "msctls_trackbar32") || !strcmp(hwnd->m_classname, "REAPERhfader"))
   {
-    int *state = (int *)hwnd->m_private_data;
     const int range = state[1];
     node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_NUMERIC_VALUE |
                        SWELL_ACCESSKIT_NODE_FLAG_HAS_MIN_NUMERIC_VALUE |
@@ -1126,7 +1129,6 @@ static void swell_accesskit_fill_numeric_state(HWND hwnd, SWELL_AccessKitOwnedNo
   }
   else if (!strcmp(hwnd->m_classname, "msctls_progress32"))
   {
-    int *state = (int *)hwnd->m_private_data;
     const int range = state[1];
     node->pod.flags |= SWELL_ACCESSKIT_NODE_FLAG_HAS_NUMERIC_VALUE |
                        SWELL_ACCESSKIT_NODE_FLAG_HAS_MIN_NUMERIC_VALUE |
