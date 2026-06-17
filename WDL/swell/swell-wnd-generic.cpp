@@ -111,6 +111,8 @@ HWND__::HWND__(HWND par, int wID, const RECT *wndr, const char *label, bool visi
 {
   m_refcnt=1;
   m_private_data=0;
+  m_accessible_private_data=0;
+
   m_israised=false;
   m_has_had_position=false;
   m_is_maximized = false;
