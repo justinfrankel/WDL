@@ -358,6 +358,33 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     
   hwnd->Retain();
 
+  if (!strcmp(hwnd->m_classname, "REAPERhfader") || !strcmp(hwnd->m_classname, "msctls_trackbar32"))
+  {
+    switch (msg)
+    {
+      case TBM_SETPOS:
+        if (hwnd->m_accessible_private_data) *(int *)hwnd->m_accessible_private_data = (int) lParam;
+        swell_accesskit_window_changed(hwnd);
+        break;
+      case TBM_SETRANGE:
+        if (hwnd->m_accessible_private_data) ((int *)hwnd->m_accessible_private_data)[1] = (int) lParam;
+        swell_accesskit_window_changed(hwnd);
+        break;
+      case TBM_SETTIC:
+        if (hwnd->m_accessible_private_data) ((int *)hwnd->m_accessible_private_data)[2] = (int) lParam;
+        swell_accesskit_window_changed(hwnd);
+        break;
+      case WM_DESTROY:
+        if (hwnd->m_accessible_private_data)
+        {
+          free((int *)hwnd->m_accessible_private_data);
+        }
+        hwnd->m_accessible_private_data = 0;
+        break;
+      default: break;
+    }
+  }
+
   LRESULT ret = wp ? wp(hwnd,msg,wParam,lParam) : 0;
  
   if (msg == WM_DESTROY)
@@ -6346,6 +6373,11 @@ HWND SWELL_MakeControl(const char *cname, int idx, const char *classname, int st
       if (hhh) 
       {
         if (exstyle) SetWindowLong(hhh,GWL_EXSTYLE,exstyle);
+
+        if (!stricmp(classname,"REAPERhfader")||!stricmp(classname,"msctls_trackbar32"))
+        {
+          hhh->m_accessible_private_data = (INT_PTR) calloc(3,sizeof(int)); // pos, range, tic
+        }
         return hhh;
       }
       p=p->next;

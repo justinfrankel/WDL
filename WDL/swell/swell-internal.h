@@ -905,6 +905,7 @@ struct HWND__
   DLGPROC m_dlgproc;
   INT_PTR m_extra[64];
   INT_PTR m_private_data; // used by internal controls
+  INT_PTR m_accessible_private_data; // used to hook some window messages and push them to accessible objects
 
   bool m_visible;
   char m_hashaddestroy; // 1 in destroy, 2 full destroy
