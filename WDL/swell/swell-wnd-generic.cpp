@@ -360,6 +360,7 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     
   hwnd->Retain();
 
+  bool already_called_proc = false;
   if (!strcmp(hwnd->m_classname, "REAPERhfader") || !strcmp(hwnd->m_classname, "msctls_trackbar32"))
   {
     switch (msg)
@@ -388,6 +389,11 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             case VK_HOME:
             case VK_END:
               {
+                if (wp)
+                {
+                  wp(hwnd,msg,wParam,lParam);
+                  already_called_proc = true;
+                }
                 int current_value = wp ? wp(hwnd, TBM_GETPOS, 0, 0) : 0;
                 if (hwnd->m_accessible_private_data && *(int *) hwnd->m_accessible_private_data != current_value)
                 {
@@ -410,7 +416,7 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
   }
 
-  LRESULT ret = wp ? wp(hwnd,msg,wParam,lParam) : 0;
+  LRESULT ret = !already_called_proc && wp ? wp(hwnd,msg,wParam,lParam) : 0;
  
   if (msg == WM_DESTROY)
   {
