@@ -882,7 +882,7 @@ LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 #ifdef SWELL_TARGET_GDK
 typedef GdkWindow *SWELL_OSWINDOW;
-typedef GdkWidget *SWELL_OSWIDGET;
+typedef GtkWidget *SWELL_OSWIDGET;
 #else
 typedef void *SWELL_OSWINDOW; // maps to the HWND__ itself on visible, non-GDK, top level windows
 #endif

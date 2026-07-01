@@ -22,7 +22,9 @@
 
 
 #ifndef SWELL_PROVIDED_BY_APP
-
+#ifdef SWELL_TARGET_WAYLAND
+#include <gdk/gdkwayland.h>
+#endif
 #include "swell.h"
 
 //#define SWELL_GDK_IMPROVE_WINDOWRECT // does not work yet (gdk_window_get_frame_extents() does not seem to be sufficiently reliable)
@@ -51,6 +53,8 @@ extern "C" {
 
 #include <X11/extensions/XInput2.h>
 
+#ifdef SWELL_TARGET_WAYLAND
+#endif
 #include <X11/Xatom.h>
 
 #include <GL/gl.h>
@@ -359,7 +363,7 @@ void SWELL_initargs(int *argc, char ***argv)
     *(void **)&_gdk_set_allowed_backends = dlsym(RTLD_DEFAULT,"gdk_set_allowed_backends");
 
     if (_gdk_set_allowed_backends)
-      _gdk_set_allowed_backends("x11");
+      _gdk_set_allowed_backends("wayland, x11");
 #endif
 
 #ifdef SWELL_SUPPORT_GTK
@@ -756,6 +760,20 @@ void swell_oswindow_maximize(HWND hwnd, bool wantmax) // false=restore
 
 void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
 {
+#ifdef SWELL_TARGET_WAYLAND
+    if (hwnd && hwnd->m_backingstore && hwnd->m_oswindow)
+    {
+        GdkRectangle r = {
+            rect->left,
+            rect->top,
+            rect->right - rect->left,
+            rect->bottom - rect->top
+        };
+        gdk_window_invalidate_rect(hwnd->m_oswindow, &r, FALSE);
+    }
+    return;
+#endif
+
 #ifdef SWELL_LICE_GDI
   if (hwnd && hwnd->m_backingstore && hwnd->m_oswindow)
   {
