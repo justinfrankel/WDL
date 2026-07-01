@@ -900,7 +900,7 @@ struct HWND__
   const char *m_classname;
 
   SWELL_OSWINDOW m_oswindow;
-  SWELL_OSWIDGET m_oswidged;
+  SWELL_OSWIDGET m_oswidget;
 
   WDL_FastString m_title;
 

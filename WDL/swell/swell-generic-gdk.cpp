@@ -633,6 +633,58 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         }
 
         RECT r = hwnd->m_position;
+#ifdef SWELL_TARGET_WAYLAND
+        bool is_popup_menu = (hwnd->m_classname && strcmp(hwnd->m_classname, "__SWELL_MENU") == 0);
+        bool is_tooltip = (!hwnd->m_parent && !hwnd->m_owner && (hwnd->m_style & WS_CHILD) && (!hwnd->m_title.Get() || !hwnd->m_title.Get()[0]));
+
+        GtkWidget *gtk_win = gtk_window_new((is_popup_menu || is_tooltip) ? GTK_WINDOW_POPUP : GTK_WINDOW_TOPLEVEL);
+
+        gtk_widget_set_app_paintable(gtk_win, TRUE);
+        gtk_widget_set_double_buffered(gtk_win, FALSE);
+        gtk_widget_add_events(gtk_win, GDK_ALL_EVENTS_MASK|GDK_EXPOSURE_MASK);
+
+        if (!is_popup_menu && !is_tooltip)
+        {
+          gtk_window_set_title(GTK_WINDOW(gtk_win), hwnd->m_title.Get());
+        }
+
+        gtk_window_set_default_size(GTK_WINDOW(gtk_win), r.right - r.left, r.bottom - r.top);
+        hwnd->m_oswidget = gtk_win;
+
+        if (is_popup_menu || is_tooltip)
+        {
+          gtk_window_move(GTK_WINDOW(gtk_win), r.left, r.top);
+          gtk_window_set_type_hint(GTK_WINDOW(gtk_win), is_tooltip ? GDK_WINDOW_TYPE_HINT_TOOLTIP : GDK_WINDOW_TYPE_HINT_POPUP_MENU);
+          gtk_window_set_decorated(GTK_WINDOW(gtk_win), FALSE);
+          gtk_window_set_skip_taskbar_hint(GTK_WINDOW(gtk_win), TRUE);
+          gtk_window_set_skip_pager_hint(GTK_WINDOW(gtk_win), TRUE);
+
+          HWND parent_hwnd = NULL;
+
+          if (is_popup_menu)
+          {
+            parent_hwnd = hwnd->m_owner;
+            if (transient_for)
+            {
+              while (parent_hwnd && parent_hwnd->m_oswindow != transient_for)
+                parent_hwnd = parent_hwnd->m_parent ? parent_hwnd->m_parent : parent_hwnd->m_owner;
+            }
+          }
+          else
+          {
+            parent_hwnd = GetFocus();
+            while (parent_hwnd && !parent_hwnd->m_oswidget)
+              parent_hwnd = parent_hwnd->m_parent;
+          }
+
+          if (parent_hwnd && parent_hwnd->m_oswidget)
+            gtk_window_set_transient_for(GTK_WINDOW(gtk_win), GTK_WINDOW(parent_hwnd->m_oswidget));
+        }
+
+        gtk_widget_realize(gtk_win);
+        gtk_widget_show(gtk_win);
+        hwnd->m_oswindow = gtk_widget_get_window(gtk_win);
+#else
         GdkWindowAttr attr={0,};
         attr.title = (char *)hwnd->m_title.Get();
         attr.event_mask = GDK_ALL_EVENTS_MASK|GDK_EXPOSURE_MASK;
@@ -648,6 +700,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         if (GetProp(hwnd,"SWELLGdkAlphaChannel"))
           attr.visual = gdk_screen_get_rgba_visual(gdk_screen_get_default());
         hwnd->m_oswindow = gdk_window_new(NULL,&attr,GDK_WA_X|GDK_WA_Y|(appname?GDK_WA_WMCLASS:0)|(attr.visual ? GDK_WA_VISUAL : 0));
+#endif
  
         if (hwnd->m_oswindow) 
         {
