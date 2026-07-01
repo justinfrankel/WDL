@@ -137,6 +137,9 @@ ifndef NOGDK
         CFLAGS += -DSWELL_PRELOAD="libgdk-3.so.0"
       endif
     endif
+    ifdef WAYLAND
+      CFLAGS += -DSWELL_TARGET_WAYLAND
+    endif
   endif
   CFLAGS += -DSWELL_LICE_GDI
   OBJS += $(LICE_OBJS)
