@@ -274,6 +274,7 @@ void swell_oswindow_destroy(HWND hwnd)
       g_swell_touchptr = NULL;
     gdk_window_destroy(hwnd->m_oswindow);
     hwnd->m_oswindow=NULL;
+    hwnd->m_oswidget=NULL;
 #ifdef SWELL_LICE_GDI
     delete hwnd->m_backingstore;
     hwnd->m_backingstore=0;
