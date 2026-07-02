@@ -3635,7 +3635,13 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
 {
   HWND hwnd = NULL;
   *wref = NULL;
-
+#ifdef SWELL_TARGET_WAYLAND
+  // do nothing on Wayland for now, will add bridge later
+  hwnd = new HWND__(viewpar,0,r,NULL,true,NULL);
+  hwnd->m_classname = bridge_class_name;
+  hwnd->m_private_data = 0;
+  return hwnd;
+#endif
   GdkWindow *ospar = NULL;
   HWND hpar = viewpar;
   while (hpar)
