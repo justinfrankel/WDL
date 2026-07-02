@@ -851,13 +851,16 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
 
 void swell_oswindow_maximize(HWND hwnd, bool wantmax) // false=restore
 {
-  if (WDL_NORMALLY(hwnd && hwnd->m_oswindow))
+  if (WDL_NOT_NORMALLY(!hwnd)) return;
+  if (!hwnd->m_oswindow)
   {
-    if (wantmax)
-      gdk_window_maximize(hwnd->m_oswindow);
-    else
-      gdk_window_unmaximize(hwnd->m_oswindow);
+    hwnd->m_is_maximized = wantmax;
+    return;
   }
+  if (wantmax)
+    gdk_window_maximize(hwnd->m_oswindow);
+  else
+    gdk_window_unmaximize(hwnd->m_oswindow);
 }
 
 void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
