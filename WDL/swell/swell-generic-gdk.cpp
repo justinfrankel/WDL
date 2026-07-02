@@ -2119,7 +2119,26 @@ void SWELL_GetViewPort(RECT *r, const RECT *sourcerect, bool wantWork)
   double best_score = -1e20;
   RECT sr;
   if (sourcerect) sr = *sourcerect;
-
+#ifdef SWELL_TARGET_WAYLAND
+  //TODO: NEEDS WORK AREA SO MENUS DONT GET CROPPED OUTSIDE OF APP BUT MOVED 
+  // On Wayland all coordinates are monitor-local (compositor reports surface origins as 0),
+  // so return the relevant monitor's geometry with a LOCAL origin (0,0) to match.
+  {
+    GdkDisplay *disp = gdk_display_get_default();
+    GdkMonitor *mon = SWELL_focused_oswindow ?
+      gdk_display_get_monitor_at_window(disp, SWELL_focused_oswindow) : NULL;
+    if (mon)
+    {
+      GdkRectangle rc = {0,};
+      gdk_monitor_get_geometry(mon, &rc);
+      r->left = 0;
+      r->top = 0;
+      r->right = rc.width;
+      r->bottom = rc.height;
+      return;
+    }
+  }
+#endif
   for (gint idx = 0; idx < n; idx ++)
   {
     GdkRectangle rc={0,0,1024,1024};
