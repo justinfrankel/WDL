@@ -3733,6 +3733,7 @@ static void encode_uri(WDL_FastString *s, const char *rd)
   }
 }
 
+#ifdef SWELL_TARGET_WAYLAND
 static void on_drag_source_data_get(GtkWidget *widget, GdkDragContext *context, GtkSelectionData *data, guint info, guint time, gpointer user_data)
 {
   HWND source_hwnd = (HWND)user_data;
@@ -3785,6 +3786,7 @@ static void on_drag_source_end(GtkWidget *widget, GdkDragContext *context, gpoin
   if (GDK_IS_DRAG_CONTEXT(context))
     g_object_ref(context);
 }
+#endif
 
 static LRESULT WINAPI dropSourceWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
