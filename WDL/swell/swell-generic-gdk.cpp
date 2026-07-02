@@ -124,6 +124,7 @@ static DWORD swell_dragsrc_timeout_start;
 static HWND swell_dragsrc_hwnd;
 static DWORD swell_lastMessagePos;
 static const char *swell_dragsrc_fn;
+static HANDLE urilistToDropFiles(const POINT *pt, const guchar *gptr, gint sz);
 
 static int gdk_options;
 #define OPTION_KEEP_OWNED_ABOVE 1
@@ -586,7 +587,36 @@ static void swell_set_owned_windows_transient(HWND hwnd, bool do_create)
   }
 }
 
+static void on_drag_data_received(GtkWidget *widget, GdkDragContext *context, gint x, gint y, GtkSelectionData *data, guint info, guint time, gpointer user_data)
+{
+  HWND target_hwnd = (HWND)user_data;
 
+  gint len = gtk_selection_data_get_length(data);
+  const guchar *gptr = gtk_selection_data_get_data(data);
+
+  if (len > 0 && gptr)
+  {
+    POINT pt = {x, y};
+
+    HWND child = ChildWindowFromPoint(target_hwnd, pt);
+    if (!child)
+      child = target_hwnd;
+
+    ScreenToClient(child, &pt);
+
+    HANDLE hdrop = urilistToDropFiles(&pt, gptr, len);
+    if (hdrop)
+    {
+      SendMessage(child, WM_DROPFILES, (WPARAM)hdrop, 0);
+      GlobalFree(hdrop);
+    }
+    gtk_drag_finish(context, TRUE, FALSE, time);
+  }
+  else
+  {
+    gtk_drag_finish(context, FALSE, FALSE, time);
+  }
+}
 
 bool IsModalDialogBox(HWND);
 
@@ -779,6 +809,17 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
             gdk_window_set_keep_above(hwnd->m_oswindow,TRUE);
 
           gdk_window_register_dnd(hwnd->m_oswindow);
+
+#ifdef SWELL_TARGET_WAYLAND
+          //NOTE: WAYLAND Drag and drop from mediaexplorer and filemanager
+          if (!is_popup_menu && !is_tooltip && gtk_win)
+          {
+            gtk_drag_dest_set(gtk_win, (GtkDestDefaults)(GTK_DEST_DEFAULT_MOTION | GTK_DEST_DEFAULT_DROP), NULL, 0, GDK_ACTION_COPY);
+            GtkTargetEntry target = { (gchar*)"text/uri-list", 0, 0 };
+            gtk_drag_dest_set_target_list(gtk_win, gtk_target_list_new(&target, 1));
+            g_signal_connect(gtk_win, "drag-data-received", G_CALLBACK(on_drag_data_received), hwnd);
+          }
+#endif
 
           if (hwnd->m_oswindow_fullscreen)
             gdk_window_fullscreen(hwnd->m_oswindow);
@@ -3348,6 +3389,7 @@ static bool OnDragEventDelegate(GdkEvent *evt)
       }
     break;
     case GDK_DROP_START:
+#ifndef SWELL_TARGET_WAYLAND
       {
         if (hwnd && hwnd == s_ddrop_forward_last_hwnd && s_ddrop_forward_last_target)
         {
@@ -3375,6 +3417,7 @@ static bool OnDragEventDelegate(GdkEvent *evt)
         }
         if (SWELL_DDrop_onDragLeave) SWELL_DDrop_onDragLeave();
       }
+#endif
     break;
     default: return false;
   }
