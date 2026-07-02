@@ -274,6 +274,17 @@ void swell_oswindow_destroy(HWND hwnd)
   if (hwnd && hwnd->m_oswindow)
   {
     if (SWELL_focused_oswindow == hwnd->m_oswindow) SWELL_focused_oswindow = NULL;
+#ifdef SWELL_TARGET_WAYLAND
+    // GTK popup menus don't emit GDK_GRAB_BROKEN on teardown like X11
+    // override-redirect menus do, so capture set during menu tracking is
+    // never released. Clear it here.
+    if (swell_captured_window && hwnd->m_classname &&
+      !strcmp(hwnd->m_classname,"__SWELL_MENU"))
+    {
+      SendMessage(swell_captured_window,WM_CAPTURECHANGED,0,0);
+      swell_captured_window=0;
+    }
+#endif
     if (g_swell_touchptr && g_swell_touchptr_wnd == hwnd->m_oswindow)
       g_swell_touchptr = NULL;
     gdk_window_destroy(hwnd->m_oswindow);
