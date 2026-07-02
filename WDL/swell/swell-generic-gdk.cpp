@@ -120,6 +120,9 @@ static GdkEvent *s_cur_evt;
 static GList *s_program_icon_list;
 
 static SWELL_OSWINDOW swell_dragsrc_osw;
+#ifdef SWELL_TARGET_WAYLAND
+static SWELL_OSWIDGET swell_dragsrc_widget;
+#endif
 static DWORD swell_dragsrc_timeout_start;
 static HWND swell_dragsrc_hwnd;
 static DWORD swell_lastMessagePos;
@@ -3710,6 +3713,58 @@ static void encode_uri(WDL_FastString *s, const char *rd)
   }
 }
 
+static void on_drag_source_data_get(GtkWidget *widget, GdkDragContext *context, GtkSelectionData *data, guint info, guint time, gpointer user_data)
+{
+  HWND source_hwnd = (HWND)user_data;
+  if (!source_hwnd) return;
+
+  dropSourceInfo *inf = (dropSourceInfo*)source_hwnd->m_private_data;
+  if (!inf) return;
+
+  WDL_FastString str;
+
+  if (inf->srclist && inf->srccount)
+  {
+    for (int x = 0; x < inf->srccount; x++)
+    {
+      const char *fn = inf->srclist[x];
+      str.Append("file://");
+      while (*fn)
+      {
+        if (isalnum_safe(*fn) || *fn == '.' || *fn == '_' || *fn == '-' || *fn == '/' || *fn == '#')
+          str.Append(fn, 1);
+        else
+          str.AppendFormatted(8, "%%%02x", *(unsigned char *)fn);
+        fn++;
+      }
+      str.Append("\r\n");
+    }
+  }
+  else if (inf->callback && inf->srcfn && inf->state)
+  {
+    inf->callback(inf->srcfn);
+    const char *fn = inf->srcfn;
+    str.Append("file://");
+    while (*fn)
+    {
+      if (isalnum_safe(*fn) || *fn == '.' || *fn == '_' || *fn == '-' || *fn == '/' || *fn == '#')
+        str.Append(fn, 1);
+      else
+        str.AppendFormatted(8, "%%%02x", *(unsigned char *)fn);
+      fn++;
+    }
+    str.Append("\r\n");
+  }
+  gtk_selection_data_set(data, urilistatom(), 8, (const guchar*)str.Get(), str.GetLength());
+}
+
+static void on_drag_source_end(GtkWidget *widget, GdkDragContext *context, gpointer user_data)
+{
+  if (swell_dragsrc_timeout_start == 0)
+    swell_dragsrc_timeout_start = GetTickCount();
+  if (GDK_IS_DRAG_CONTEXT(context))
+    g_object_ref(context);
+}
 
 static LRESULT WINAPI dropSourceWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -3717,6 +3772,26 @@ static LRESULT WINAPI dropSourceWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
   switch (msg)
   {
     case WM_CREATE:
+#ifdef SWELL_TARGET_WAYLAND
+      if (!swell_dragsrc_widget)
+      {
+        swell_dragsrc_widget = gtk_window_new(GTK_WINDOW_POPUP);
+        gtk_window_set_default_size(GTK_WINDOW(swell_dragsrc_widget), 1, 1);
+        gtk_widget_realize(swell_dragsrc_widget);
+      }
+      if (swell_dragsrc_widget)
+      {
+        GtkTargetList *target_list = gtk_target_list_new(NULL, 0);
+        gtk_target_list_add_uri_targets(target_list, 0);
+        POINT p;
+        GetCursorPos(&p);
+        inf->dragctx = gtk_drag_begin_with_coordinates(swell_dragsrc_widget, target_list, GDK_ACTION_COPY, 1, NULL, p.x, p.y);
+        gtk_target_list_unref(target_list);
+        g_signal_connect(swell_dragsrc_widget, "drag-data-get", G_CALLBACK(on_drag_source_data_get), hwnd);
+        g_signal_connect(swell_dragsrc_widget, "drag-end", G_CALLBACK(on_drag_source_end), NULL);
+      }
+      SetCapture(hwnd);
+#else
       if (!swell_dragsrc_osw)
       {
         GdkWindowAttr attr={0,};
@@ -3731,6 +3806,7 @@ static LRESULT WINAPI dropSourceWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         inf->dragctx = gdk_drag_begin(swell_dragsrc_osw, g_list_append(NULL,urilistatom()));
       }
       SetCapture(hwnd);
+#endif
     break;
     case WM_MOUSEMOVE:
       if (inf->dragctx)
