@@ -859,20 +859,6 @@ void swell_oswindow_maximize(HWND hwnd, bool wantmax) // false=restore
 
 void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
 {
-#ifdef SWELL_TARGET_WAYLAND
-    if (hwnd && hwnd->m_backingstore && hwnd->m_oswindow)
-    {
-        GdkRectangle r = {
-            rect->left,
-            rect->top,
-            rect->right - rect->left,
-            rect->bottom - rect->top
-        };
-        gdk_window_invalidate_rect(hwnd->m_oswindow, &r, FALSE);
-    }
-    return;
-#endif
-
 #ifdef SWELL_LICE_GDI
   if (hwnd && hwnd->m_backingstore && hwnd->m_oswindow)
   {
@@ -880,6 +866,10 @@ void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
     LICE_SubBitmap tmpbm(bm,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
 
     GdkRectangle rrr={rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top};
+#ifdef SWELL_TARGET_WAYLAND
+    gdk_window_invalidate_rect(hwnd->m_oswindow, &rrr, FALSE);
+    return;
+#endif
     gdk_window_begin_paint_rect(hwnd->m_oswindow, &rrr);
 
     cairo_t * crc = gdk_cairo_create (hwnd->m_oswindow);
