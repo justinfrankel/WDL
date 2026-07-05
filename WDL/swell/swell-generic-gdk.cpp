@@ -696,6 +696,19 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         gtk_window_set_default_size(GTK_WINDOW(gtk_win), r.right - r.left, r.bottom - r.top);
         hwnd->m_oswidget = gtk_win;
 
+        // GTK sizes a toplevel to its content's natural size and asks
+        // the compositor for that — ignoring gtk_window_set_default_size when the
+        // content is larger. That makes dialogs open full-height. A max-size hint
+        // is the only thing GTK won't override, so clamp max to the requested size.
+        if (!is_popup_menu && !is_tooltip )
+        {
+          GdkGeometry gh;
+          gh.max_width = r.right - r.left;
+          gh.max_height = r.bottom - r.top;
+          gtk_window_set_geometry_hints(GTK_WINDOW(gtk_win), NULL, &gh,
+            (GdkWindowHints)GDK_HINT_MAX_SIZE);
+        }
+
         if (is_popup_menu || is_tooltip)
         {
           gtk_window_move(GTK_WINDOW(gtk_win), r.left, r.top);
