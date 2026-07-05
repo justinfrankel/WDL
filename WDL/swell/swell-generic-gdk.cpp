@@ -682,6 +682,10 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         bool is_popup_menu = (hwnd->m_classname && strcmp(hwnd->m_classname, "__SWELL_MENU") == 0);
         bool is_tooltip = (!hwnd->m_parent && !hwnd->m_owner && (hwnd->m_style & WS_CHILD) && (!hwnd->m_title.Get() || !hwnd->m_title.Get()[0]));
 
+        bool is_splash = (!hwnd->m_parent && !hwnd->m_owner &&
+                        !(hwnd->m_style & WS_CAPTION) && !(hwnd->m_style & WS_CHILD) &&
+                        (!hwnd->m_title.Get() || !hwnd->m_title.Get()[0]));
+
         GtkWidget *gtk_win = gtk_window_new((is_popup_menu || is_tooltip) ? GTK_WINDOW_POPUP : GTK_WINDOW_TOPLEVEL);
 
         gtk_widget_set_app_paintable(gtk_win, TRUE);
@@ -700,13 +704,23 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         // the compositor for that — ignoring gtk_window_set_default_size when the
         // content is larger. That makes dialogs open full-height. A max-size hint
         // is the only thing GTK won't override, so clamp max to the requested size.
-        if (!is_popup_menu && !is_tooltip )
+        if (!is_popup_menu && !is_tooltip && !is_splash)
         {
+          // GTK ignores set_default_size when content natural size differs, and a
+          // max-only hint just caps (doesn't force). To make the restored size
+          // actually apply on Wayland, pin min=max=restored size — GTK cannot
+          // override an exact min==max constraint. This is released on the FIRST
+          // configure event (see OnConfigureEvent), i.e. once the window has been
+          // mapped at this exact size, after which it is freely resizable.
+          int rw = r.right - r.left, rh = r.bottom - r.top;
+          if (rw < 1) rw = 1;
+          if (rh < 1) rh = 1;
           GdkGeometry gh;
-          gh.max_width = r.right - r.left;
-          gh.max_height = r.bottom - r.top;
+          gh.min_width = gh.max_width = rw;
+          gh.min_height = gh.max_height = rh;
           gtk_window_set_geometry_hints(GTK_WINDOW(gtk_win), NULL, &gh,
-            (GdkWindowHints)GDK_HINT_MAX_SIZE);
+            (GdkWindowHints)(GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
+          SetProp(hwnd, "SWELL_SizePinned", (HANDLE)(INT_PTR)1);
         }
 
         if (is_popup_menu || is_tooltip)
@@ -1223,6 +1237,16 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
   hwnd->m_position.bottom = cfg->y + cfg->height;
   if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
   if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,0);
+#ifdef SWELL_TARGET_WAYLAND
+  // Release the creation-time size pin now that the window has been mapped at its
+  // restored size. Do it on the first configure only. After this the window is
+  // freely resizable (recalcMinMaxInfo below re-applies the real min/max limits).
+  if (GetProp(hwnd, "SWELL_SizePinned") && hwnd->m_oswidget && GTK_IS_WINDOW(hwnd->m_oswidget))
+  {
+    RemoveProp(hwnd, "SWELL_SizePinned");
+    gtk_window_set_geometry_hints(GTK_WINDOW(hwnd->m_oswidget), NULL, NULL, (GdkWindowHints)0);
+  }
+#endif
   if (!hwnd->m_hashaddestroy && hwnd->m_oswindow && (hwnd->m_style & WS_THICKFRAME))
     swell_recalcMinMaxInfo(hwnd);
 }
@@ -1234,9 +1258,17 @@ static void OnWindowStateEvent(GdkEventWindowState *evt)
 
   if (evt->changed_mask & GDK_WINDOW_STATE_MAXIMIZED)
   {
-    hwnd->m_is_maximized = (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED)!=0;
+    bool maximized;
+#ifdef SWELL_TARGET_WAYLAND
+    maximized = hwnd->m_oswidget && GTK_IS_WINDOW(hwnd->m_oswidget)
+                  ? gtk_window_is_maximized(GTK_WINDOW(hwnd->m_oswidget))
+                  : false;
+#else
+    maximized = (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) != 0;
+#endif
+    hwnd->m_is_maximized = maximized;
     SendMessage(hwnd,WM_SIZE,
-        (evt->new_window_state & GDK_WINDOW_STATE_MAXIMIZED) ? SIZE_MAXIMIZED : SIZE_RESTORED, 0);
+        maximized ? SIZE_MAXIMIZED : SIZE_RESTORED, 0);
   }
 }
 
