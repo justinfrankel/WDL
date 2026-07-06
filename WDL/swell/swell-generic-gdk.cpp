@@ -1295,8 +1295,14 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
     gtk_window_set_geometry_hints(GTK_WINDOW(hwnd->m_oswidget), NULL, NULL, (GdkWindowHints)0);
   }
 #endif
+#ifdef SWELL_TARGET_WAYLAND
+  // Prevent modal windows to be resized manually (broken when fixed windows to remember previous size)
+  if (!hwnd->m_hashaddestroy && hwnd->m_oswindow)
+    swell_recalcMinMaxInfo(hwnd);
+#else
   if (!hwnd->m_hashaddestroy && hwnd->m_oswindow && (hwnd->m_style & WS_THICKFRAME))
     swell_recalcMinMaxInfo(hwnd);
+#endif
 }
 
 static void OnWindowStateEvent(GdkEventWindowState *evt)
