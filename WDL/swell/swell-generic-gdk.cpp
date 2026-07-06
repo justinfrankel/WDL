@@ -186,6 +186,15 @@ static bool s_clipboard_written; // has clipboard data been written-to since ope
 
 static void swell_gdkEventHandler(GdkEvent *event, gpointer data);
 
+#ifdef SWELL_TARGET_WAYLAND
+// Wayland allows only one popup per parent. Tooltip and a
+// menu cannot both be showed at the same time. 
+// Track the single active tooltip
+// so we can hide it when a menu opens, and suppress tooltips while a menu is up.
+static HWND s_wayland_active_tooltip;
+bool PopupMenuIsActive();
+#endif
+
 static int s_last_desktop;
 static UINT_PTR s_deactivate_timer;
 static guint32 s_force_window_time;
@@ -284,6 +293,9 @@ void swell_oswindow_destroy(HWND hwnd)
       SendMessage(swell_captured_window,WM_CAPTURECHANGED,0,0);
       swell_captured_window=0;
     }
+#endif
+#ifdef SWELL_TARGET_WAYLAND
+    if (s_wayland_active_tooltip == hwnd) s_wayland_active_tooltip = NULL;
 #endif
     if (g_swell_touchptr && g_swell_touchptr_wnd == hwnd->m_oswindow)
       g_swell_touchptr = NULL;
@@ -723,13 +735,28 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           SetProp(hwnd, "SWELL_SizePinned", (HANDLE)(INT_PTR)1);
         }
 
+        // Tooltip and a menu can't both be showed at same time,
+        // opening a menu closes any active tooltip, 
+        // while a menu is open tooltips cant spawn.
+        if (is_popup_menu && s_wayland_active_tooltip)
+        {
+          if (s_wayland_active_tooltip->m_oswindow)
+            gdk_window_hide(s_wayland_active_tooltip->m_oswindow);
+          s_wayland_active_tooltip = NULL;
+        }
+        if (is_tooltip && PopupMenuIsActive())
+        {
+          // don't show a tooltip while a menu is up
+          gtk_widget_destroy(gtk_win);
+          hwnd->m_oswidget = NULL;
+          return;
+        }
+
+        HWND popup_parent_hwnd = NULL;
         if (is_popup_menu || is_tooltip)
         {
-          gtk_window_move(GTK_WINDOW(gtk_win), r.left, r.top);
+          if (is_tooltip) s_wayland_active_tooltip = hwnd;
           gtk_window_set_type_hint(GTK_WINDOW(gtk_win), is_tooltip ? GDK_WINDOW_TYPE_HINT_TOOLTIP : GDK_WINDOW_TYPE_HINT_POPUP_MENU);
-          gtk_window_set_decorated(GTK_WINDOW(gtk_win), FALSE);
-          gtk_window_set_skip_taskbar_hint(GTK_WINDOW(gtk_win), TRUE);
-          gtk_window_set_skip_pager_hint(GTK_WINDOW(gtk_win), TRUE);
 
           HWND parent_hwnd = NULL;
 
@@ -751,9 +778,30 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
 
           if (parent_hwnd && parent_hwnd->m_oswidget)
             gtk_window_set_transient_for(GTK_WINDOW(gtk_win), GTK_WINDOW(parent_hwnd->m_oswidget));
+          popup_parent_hwnd = parent_hwnd;
         }
 
         gtk_widget_realize(gtk_win);
+
+        // gtk_window_move is not constrained to the screen,
+        // so popups render outside of the bottom/right edge. Use gdk_window_move_to_rect
+        // so the compositor slides the popup on-screen.
+        // https://bugzilla.mozilla.org/show_bug.cgi?id=1423598
+        if ((is_popup_menu || is_tooltip) && popup_parent_hwnd)
+        {
+          GdkWindow *pw = gtk_widget_get_window(gtk_win);
+          GdkWindow *parent_gw = gtk_widget_get_window(popup_parent_hwnd->m_oswidget);
+          if (pw && parent_gw)
+          {
+            gint psx = 0, psy = 0;
+            gdk_window_get_origin(parent_gw, &psx, &psy);
+            GdkRectangle anchor = { r.left - psx, r.top - psy, 1, 1 };
+            gdk_window_move_to_rect(pw, &anchor,
+                GDK_GRAVITY_NORTH_WEST, GDK_GRAVITY_NORTH_WEST,
+                (GdkAnchorHints)(GDK_ANCHOR_SLIDE_X | GDK_ANCHOR_SLIDE_Y),
+                0, 0);
+          }
+        }
         gtk_widget_show(gtk_win);
         hwnd->m_oswindow = gtk_widget_get_window(gtk_win);
 #else
