@@ -23,15 +23,23 @@ static char __1ifNT2if98=0; // 2 for iswin98
 #endif
 
 
-static int utf8makechar(char *ptrout, unsigned short charIn)
+static int utf8makechar(char *ptrout, unsigned int charIn)
 {
   unsigned char *pout = (unsigned char *)ptrout;
   if (charIn < 128) { *pout = (unsigned char)charIn; return 1; }
   if (charIn < 2048) { pout[0] = 0xC0 + (charIn>>6); pout[1] = 0x80 + (charIn&0x3f); return 2; }
-  pout[0] = 0xE0 + (charIn>>12);
-  pout[1] = 0x80 + ((charIn>>6)&0x3f);
-  pout[2] = 0x80 + (charIn&0x3f);
-  return 3;
+  if (charIn < 65536)
+  {
+    pout[0] = 0xE0 + (charIn>>12);
+    pout[1] = 0x80 + ((charIn>>6)&0x3f);
+    pout[2] = 0x80 + (charIn&0x3f);
+    return 3;
+  }
+  pout[0]=0xF0|(charIn>>18);
+  pout[1]=0x80|((charIn>>12)&0x3F);
+  pout[2]=0x80|((charIn>>6)&0x3F);
+  pout[3]=0x80|(charIn&0x3F);
+  return 4;
 }
 
 static int utf8char(const char *ptr, unsigned int *charOut) // returns char length
@@ -67,7 +75,7 @@ static int utf8char(const char *ptr, unsigned int *charOut) // returns char leng
   {
     if (p[1] >= 0x80 && p[1] <= 0xC0 && p[2] >= 0x80 && p[2] <= 0xC0 && p[3] >= 0x80 && p[3] <= 0xC0)
     {
-      if (charOut) *charOut = ' '; // dont support 4 byte sequences yet(ever?)
+      if (charOut) *charOut = ((tc&7)<<18)|((p[1]&0x3F)<<12)|((p[2]&0x3F)<<6)|(p[3]&0x3F);
       return 4;
     }
   }  
@@ -246,12 +254,21 @@ bool LICE_CachedFont::RenderGlyph(unsigned int idx) // return TRUE if ok
     WCHAR tmpstr[3];
     unsigned int c2;
     int l = 1;
-    if (DECODE_COMBINING(&idx,&c2))
+    if (idx >= 0x10000 && idx < 0x10FFFF)
     {
-      tmpstr[1] = (WCHAR) (c2&0xFFFF);
+      tmpstr[0] = 0xD800 + (((idx-0x10000)>>10)&0x3FF);
+      tmpstr[1] = 0xDC00 + (((idx-0x10000)&0x3FF));
       l++;
     }
-    tmpstr[0] = (WCHAR) (idx&0xFFFF);
+    else
+    {
+      if (DECODE_COMBINING(&idx,&c2))
+      {
+        tmpstr[1] = (WCHAR) (c2&0xFFFF);
+        l++;
+      }
+      tmpstr[0] = (WCHAR) (idx&0xFFFF);
+    }
 
     ::DrawTextW(s_tempbitmap->getDC(),tmpstr,l,&r,DT_CALCRECT|DT_SINGLELINE|DT_NOPREFIX);
     advance=r.right;
