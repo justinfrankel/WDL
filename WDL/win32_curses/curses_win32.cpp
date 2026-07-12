@@ -806,6 +806,35 @@ void __endwin(win32CursesCtx *ctx)
   }
 }
 
+static int curses_get_char(win32CursesCtx *ctx, int peek)
+{
+  if (ctx->m_kb_queue_valid)
+  {
+    const int qsize = sizeof(ctx->m_kb_queue)/sizeof(ctx->m_kb_queue[0]);
+    int a = ctx->m_kb_queue[ctx->m_kb_queue_pos & (qsize-1)];
+    int sz = 1;
+#ifdef _WIN32
+    if (a >= 0xD800 && a <= 0xD800 + 0x3FF)
+    {
+      if (ctx->m_kb_queue_valid >= 2)
+      {
+        int b = ctx->m_kb_queue[(ctx->m_kb_queue_pos+1) & (qsize-1)];
+        if (b >= 0xDC00 && b < 0xDC00 + 0x3FF)
+        {
+          sz++;
+          a = 0x10000 + ((a-0xD800)<<10) + (b - 0xDC00);
+        }
+      }
+      else if (peek) return -1; // wait for surrogate pair
+    }
+#endif
+    if (peek) return a;
+    ctx->m_kb_queue_pos+=sz;
+    ctx->m_kb_queue_valid-=sz;
+    return a;
+  }
+  return -1;
+}
 
 int curses_getch(win32CursesCtx *ctx)
 {
@@ -817,28 +846,22 @@ int curses_getch(win32CursesCtx *ctx)
     MSG msg;
     if (ctx->want_getch_runmsgpump>1)
     {
-      while(!ctx->m_kb_queue_valid && GetMessage(&msg,NULL,0,0))
+      while (curses_get_char(ctx, 1) == -1 && GetMessageW(&msg,NULL,0,0))
       {
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageW(&msg);
       }
     }
-    else while(PeekMessage(&msg,NULL,0,0,PM_REMOVE))
+    else while (PeekMessageW(&msg,NULL,0,0,PM_REMOVE))
     {
       TranslateMessage(&msg);
-      DispatchMessage(&msg);
+      DispatchMessageW(&msg);
     }
   }
 #endif
 
-  if (ctx->m_kb_queue_valid)
-  {
-    const int qsize = sizeof(ctx->m_kb_queue)/sizeof(ctx->m_kb_queue[0]);
-    const int a = ctx->m_kb_queue[ctx->m_kb_queue_pos & (qsize-1)];
-    ctx->m_kb_queue_pos++;
-    ctx->m_kb_queue_valid--;
-    return a;
-  }
+  int a = curses_get_char(ctx, 0);
+  if (a >= 0) return a;
 
   if (ctx->need_redraw&1)
   {
