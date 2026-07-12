@@ -2098,10 +2098,10 @@ static EEL_F * NSEEL_CGEN_CALL _gfx_update(void *opaque, EEL_F *n)
 
 #ifdef _WIN32
       MSG msg;
-      while (PeekMessage(&msg,NULL,0,0,PM_REMOVE)) 
+      while (PeekMessageW(&msg,NULL,0,0,PM_REMOVE)) 
       {
         TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        DispatchMessageW(&msg);
       }
 #else
       void SWELL_RunEvents();
@@ -2186,6 +2186,16 @@ static EEL_F NSEEL_CGEN_CALL _gfx_getchar(void *opaque, INT_PTR np, EEL_F **plis
           plist[1][0] = (a2&0xffffff);
         }
         return a;
+      }
+      else if (ctx->m_kb_queue_valid > 0 && a >= 0x7500D800 && a <= 0x7500D800 + 0x3FF) // 'u' = 0x75
+      {
+        int a2 = ctx->m_kb_queue[ctx->m_kb_queue_pos & (qsize-1)];
+        if (a2 >= 0x7500DC00 && a2 <= 0x7500DC00 + 0x3FF) // surrogate pair
+        {
+          a = 0x75010000 + (((a&0xffff)-0xD800)<<10) + ((a2&0xffff) - 0xDC00);
+          ctx->m_kb_queue_pos++;
+          ctx->m_kb_queue_valid--;
+        }
       }
 #else
       if (a > 32 && a < 256 && np > 1)
