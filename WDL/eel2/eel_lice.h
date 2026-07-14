@@ -1566,7 +1566,7 @@ static int __drawTextWithFont(LICE_IBitmap *dest, const RECT *rect, LICE_IFont *
 #ifdef DYNAMIC_LICE
         (LICE_IBitmap_disabledAPI*)
 #endif
-        dest,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
+        dest,rect->left,rect->top,(flags & DT_NOCLIP)?0:(rect->right-rect->left),(flags & DT_NOCLIP)?0:(rect->bottom-rect->top));
 
     if (!measureOnly)
     {
