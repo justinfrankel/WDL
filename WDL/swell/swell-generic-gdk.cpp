@@ -2128,7 +2128,18 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
     break;
   }
 #ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_TARGET_WAYLAND
+// Do NOT hand GDK_DELETE to GTK's default handler: SWELL already processed it
+// above (the WM_CLOSE path). GTK's default delete handler runs g_object_run_dispose
+// on the window (hide/withdraw/destroy), which tears the window down itself
+// "window closes but process keeps running". On X11 the modal grab happened to
+// stop GTK from routing the delete here; on Wayland (no grab) it reached this and
+// disposed the window making the whole app close but keep running in background.
+  if (evt->type != GDK_DELETE)
+    gtk_main_do_event(evt);
+#else
   gtk_main_do_event(evt);
+#endif
 #endif
   s_cur_evt = oldEvt;
 }
