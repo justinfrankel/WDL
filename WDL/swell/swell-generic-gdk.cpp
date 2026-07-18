@@ -400,7 +400,11 @@ void SWELL_initargs(int *argc, char ***argv)
     *(void **)&_gdk_set_allowed_backends = dlsym(RTLD_DEFAULT,"gdk_set_allowed_backends");
 
     if (_gdk_set_allowed_backends)
+#ifdef SWELL_TARGET_WAYLAND
       _gdk_set_allowed_backends("wayland, x11");
+#else
+      _gdk_set_allowed_backends("x11");
+#endif
 #endif
 
 #ifdef SWELL_SUPPORT_GTK
