@@ -980,7 +980,6 @@ opcodeRec *nseel_resolve_named_symbol(compileContext *ctx, opcodeRec *rec, int p
     if (a) 
     {
       rec->parms.dv.valuePtr = a;
-      sname[0]=0; // for dump_ops compat really, but this shouldn't be needed anyway
     }
     return rec;
   }
@@ -2458,7 +2457,8 @@ start_over: // when an opcode changed substantially in optimization, goto here t
                   if (first_parm->namespaceidx != second_parm->namespaceidx) break;
                   WDL_FALLTHROUGH; // fall through
                 case OPCODETYPE_VARPTR:
-                  if (first_parm->relname && second_parm->relname && !stricmp(second_parm->relname,first_parm->relname)) second_parm=NULL;
+                  if (first_parm->parms.dv.valuePtr && first_parm->parms.dv.valuePtr==second_parm->parms.dv.valuePtr) second_parm=NULL;
+                  else if (first_parm->relname && second_parm->relname && first_parm->relname[0] && !stricmp(second_parm->relname,first_parm->relname)) second_parm=NULL;
                 break;
                 case OPCODETYPE_VARPTRPTR:
                   if (first_parm->parms.dv.valuePtr && first_parm->parms.dv.valuePtr==second_parm->parms.dv.valuePtr) second_parm=NULL;
