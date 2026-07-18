@@ -192,6 +192,13 @@ static void swell_gdkEventHandler(GdkEvent *event, gpointer data);
 // Track the single active tooltip
 // so we can hide it when a menu opens, and suppress tooltips while a menu is up.
 static HWND s_wayland_active_tooltip;
+// Tooltips carry no parent or owner, so nothing in the tooltip itself says which
+// window it belongs to. Record the last real toplevel the pointer was over (see
+// OnMotionEvent) and use that as the popup parent -- GetFocus() is wrong, since focus
+// and hover are independent (a tooltip for a REAPER control while Preferences held
+// focus would otherwise be parented to, and drawn inside, Preferences). Stored as the
+// OS window and re-resolved on use so a destroyed window cannot dangle.
+static SWELL_OSWINDOW s_last_hover_oswindow;
 bool PopupMenuIsActive();
 #endif
 
@@ -296,6 +303,8 @@ void swell_oswindow_destroy(HWND hwnd)
 #endif
 #ifdef SWELL_TARGET_WAYLAND
     if (s_wayland_active_tooltip == hwnd) s_wayland_active_tooltip = NULL;
+    if (s_last_hover_oswindow && s_last_hover_oswindow == hwnd->m_oswindow)
+      s_last_hover_oswindow = NULL;
 #endif
     if (g_swell_touchptr && g_swell_touchptr_wnd == hwnd->m_oswindow)
       g_swell_touchptr = NULL;
@@ -698,6 +707,16 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
                         !(hwnd->m_style & WS_CAPTION) && !(hwnd->m_style & WS_CHILD) &&
                         (!hwnd->m_title.Get() || !hwnd->m_title.Get()[0]));
 
+        // REAPER's dock drag preview is indistinguishable from a tooltip at creation
+        // time (same class, empty title, WS_CHILD), but unlike a tooltip it has to
+        // move: gdk_window_move_to_rect() below makes a real xdg_popup, whose position
+        // is fixed by its positioner when it maps and cannot be changed afterwards
+        // (GTK3 has no xdg_popup.reposition), so the preview froze wherever it first
+        // appeared while REAPER kept issuing moves. Keeping it off that path leaves it
+        // a subsurface, which gdk_window_move can still reposition. A drag always
+        // holds the mouse capture; a hover tooltip never does.
+        const bool is_drag_preview = is_tooltip && GetCapture() != NULL;
+
         GtkWidget *gtk_win = gtk_window_new((is_popup_menu || is_tooltip) ? GTK_WINDOW_POPUP : GTK_WINDOW_TOPLEVEL);
 
         gtk_widget_set_app_paintable(gtk_win, TRUE);
@@ -744,7 +763,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
             gdk_window_hide(s_wayland_active_tooltip->m_oswindow);
           s_wayland_active_tooltip = NULL;
         }
-        if (is_tooltip && PopupMenuIsActive())
+        if (is_tooltip && !is_drag_preview && PopupMenuIsActive())
         {
           // don't show a tooltip while a menu is up
           gtk_widget_destroy(gtk_win);
@@ -755,7 +774,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         HWND popup_parent_hwnd = NULL;
         if (is_popup_menu || is_tooltip)
         {
-          if (is_tooltip) s_wayland_active_tooltip = hwnd;
+          if (is_tooltip && !is_drag_preview) s_wayland_active_tooltip = hwnd;
           gtk_window_set_type_hint(GTK_WINDOW(gtk_win), is_tooltip ? GDK_WINDOW_TYPE_HINT_TOOLTIP : GDK_WINDOW_TYPE_HINT_POPUP_MENU);
 
           HWND parent_hwnd = NULL;
@@ -771,9 +790,36 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           }
           else
           {
-            parent_hwnd = GetFocus();
-            while (parent_hwnd && !parent_hwnd->m_oswidget)
-              parent_hwnd = parent_hwnd->m_parent;
+            // Anchor to the window that was hovered, not the focused one.
+            if (s_last_hover_oswindow)
+            {
+              HWND hov = swell_oswindow_to_hwnd(s_last_hover_oswindow);
+              if (hov && hov != hwnd && hov->m_oswidget && !(hov->m_style & WS_CHILD))
+                parent_hwnd = hov;
+            }
+
+            if (!parent_hwnd)
+            {
+              if (is_drag_preview)
+              {
+                // The preview must always be visible, and its parent is only a
+                // coordinate base (it is placed by gdk_window_move, not by an anchor
+                // rect), so an imperfect parent is harmless here.
+                parent_hwnd = GetFocus();
+                while (parent_hwnd && !parent_hwnd->m_oswidget)
+                  parent_hwnd = parent_hwnd->m_parent;
+              }
+              else
+              {
+                // Fail closed: without a known hovered window we cannot place the
+                // tooltip correctly, and showing it in the wrong window is worse than
+                // not showing it at all.
+                s_wayland_active_tooltip = NULL;
+                gtk_widget_destroy(gtk_win);
+                hwnd->m_oswidget = NULL;
+                return;
+              }
+            }
           }
 
           if (parent_hwnd && parent_hwnd->m_oswidget)
@@ -787,7 +833,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         // so popups render outside of the bottom/right edge. Use gdk_window_move_to_rect
         // so the compositor slides the popup on-screen.
         // https://bugzilla.mozilla.org/show_bug.cgi?id=1423598
-        if ((is_popup_menu || is_tooltip) && popup_parent_hwnd)
+        if ((is_popup_menu || (is_tooltip && !is_drag_preview)) && popup_parent_hwnd)
         {
           GdkWindow *pw = gtk_widget_get_window(gtk_win);
           GdkWindow *parent_gw = gtk_widget_get_window(popup_parent_hwnd->m_oswidget);
@@ -1640,6 +1686,18 @@ static HWND getMouseTarget(SWELL_OSWINDOW osw, POINT p, const HWND *hwnd_has_osw
 static void OnMotionEvent(GdkEventMotion *m)
 {
   swell_lastMessagePos = MAKELONG(((int)m->x_root&0xffff),((int)m->y_root&0xffff));
+#ifdef SWELL_TARGET_WAYLAND
+  // Remember which real toplevel the pointer is over. m->window is the OS window the
+  // motion occurred on, so this is authoritative without needing global coordinates
+  // (which Wayland does not provide). Skip popups: tooltips and menus are both
+  // WS_CHILD, and letting the pointer entering a tooltip overwrite this would
+  // re-anchor the next tooltip to the previous one.
+  {
+    HWND top = swell_oswindow_to_hwnd(m->window);
+    if (top && top->m_oswidget && !(top->m_style & WS_CHILD))
+      s_last_hover_oswindow = m->window;
+  }
+#endif
   POINT p={(int)m->x, (int)m->y};
   HWND hwnd = getMouseTarget(m->window,p,NULL);
 
