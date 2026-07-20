@@ -66,10 +66,10 @@ class wdl_xml_element {
       return attributes.Get((char*)v,(char*)def);
     }
 
-    wdl_xml_element *get_element_by_name(const char *name, int cnt=0)
+    wdl_xml_element *get_element_by_name(const char *searchname, int cnt=0)
     {
       for (int x = 0; x < elements.GetSize(); x ++)
-        if (elements.Get(x)->name && !strcmp(name,elements.Get(x)->name) && !cnt--)
+        if (elements.Get(x)->name && !strcmp(searchname,elements.Get(x)->name) && !cnt--)
           return elements.Get(x);
       return NULL;
     }
