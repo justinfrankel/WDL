@@ -658,6 +658,25 @@ BOOL ResetEvent(HANDLE hand)
   return FALSE;
 }
 
+BOOL MoveFile(const char *srcfilename, const char *destfilename)
+{
+  // match Windows semantics: if destfilename already exists, do not overwrite
+  // ...unless it is the same filename on a case-insensitive filesystem
+
+  struct stat deststat, srcstat;
+  if (!stat(destfilename,&deststat))
+  {
+    if (stat(srcfilename, &srcstat)) return false; // do not allow renaming a file that doesn't exist
+
+    // do not allow overwriting a file
+    // but if they are the same file (e.g. case-insensitive filesystem), then rename
+    if (srcstat.st_dev != deststat.st_dev ||
+        srcstat.st_ino != deststat.st_ino) return false;
+  }
+
+  return !rename(srcfilename, destfilename);
+}
+
 BOOL WinOffsetRect(LPRECT lprc, int dx, int dy)
 {
   if(!lprc) return 0;
