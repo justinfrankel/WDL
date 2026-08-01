@@ -24,6 +24,7 @@
 #ifndef SWELL_PROVIDED_BY_APP
 #ifdef SWELL_TARGET_WAYLAND
 #include <gdk/gdkwayland.h>
+#include <wayland-client.h>
 #endif
 #include "swell.h"
 
@@ -138,6 +139,59 @@ static int gdk_options;
 #define OPTION_FULLSCREEN_FOR_OWNER_WINDOWS 32
 #define OPTION_FULLSCREEN_DYNAMIC 64
 
+#ifdef SWELL_TARGET_WAYLAND
+static int g_swell_wayland_title_h; // 0 = compositor has real SSD, use it normally
+#define SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W 36
+#define SWELL_WAYLAND_BORDER_WIDTH 2
+
+static void swell_wayland_init_titlebar_height()
+{
+  GdkDisplay *disp = gdk_display_get_default();
+  bool lacks_ssd;
+  if (disp && GDK_IS_WAYLAND_DISPLAY(disp))
+  {
+    GtkWidget *probe = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_widget_show(probe);
+    struct wl_display *wl_disp = gdk_wayland_display_get_wl_display(disp);
+    for (int i = 0; i < 5 && wl_disp; i++)
+      wl_display_roundtrip(wl_disp);
+    GtkStyleContext *ctx = gtk_widget_get_style_context(probe);
+    lacks_ssd = gtk_style_context_has_class(ctx, "csd");
+    gtk_widget_destroy(probe);
+  }
+  else
+    lacks_ssd = false; // not a Wayland display at all (e.g. X11) -- SSD question doesn't apply, behave as before
+  g_swell_wayland_title_h = lacks_ssd ? 28 : 0;
+}
+
+static void swell_wayland_suppress_csd_shadow_once()
+{
+  static bool done = false;
+  if (done || !g_swell_wayland_title_h) return;
+  done = true;
+
+  GtkCssProvider *provider = gtk_css_provider_new();
+  const char *css =
+    "decoration, decoration:backdrop {"
+    "  box-shadow: none;"
+    "  border: none;"
+    "  border-radius: 0;"
+    "  margin: 0;"
+    "  padding: 0;"
+    "}";
+  gtk_css_provider_load_from_data(provider, css, -1, NULL);
+  gtk_style_context_add_provider_for_screen(gdk_screen_get_default(),
+                                             GTK_STYLE_PROVIDER(provider),
+                                             GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  g_object_unref(provider);
+}
+
+static bool swell_wayland_needs_manual_titlebar(HWND hwnd)
+{
+  return hwnd && g_swell_wayland_title_h && (hwnd->m_style & WS_CAPTION);
+}
+#endif
+
 static HWND s_ddrop_hwnd;
 static POINT s_ddrop_pt;
 
@@ -200,6 +254,11 @@ static HWND s_wayland_active_tooltip;
 // OS window and re-resolved on use so a destroyed window cannot dangle.
 static SWELL_OSWINDOW s_last_hover_oswindow;
 bool PopupMenuIsActive();
+
+static SWELL_OSWINDOW s_armed_drag_oswindow;
+static guint s_armed_drag_button;
+static gint s_armed_drag_root_x, s_armed_drag_root_y;
+static guint32 s_armed_drag_time;
 #endif
 
 static int s_last_desktop;
@@ -377,6 +436,13 @@ void swell_recalcMinMaxInfo(HWND hwnd)
     RECT r=hwnd->m_position;
     mmi.ptMinTrackSize.x = mmi.ptMaxSize.x = mmi.ptMaxTrackSize.x = r.right-r.left;
     mmi.ptMinTrackSize.y = mmi.ptMaxSize.y = mmi.ptMaxTrackSize.y = r.bottom-r.top;
+#ifdef SWELL_TARGET_WAYLAND
+    if (swell_wayland_needs_manual_titlebar(hwnd))
+    {
+      mmi.ptMinTrackSize.x = mmi.ptMaxSize.x = mmi.ptMaxTrackSize.x += SWELL_WAYLAND_BORDER_WIDTH*2;
+      mmi.ptMinTrackSize.y = mmi.ptMaxSize.y = mmi.ptMaxTrackSize.y += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2;
+    }
+#endif
   }
 
   GdkGeometry h;
@@ -540,6 +606,11 @@ static void init_options()
   if (!gdk_options)
   {
     gdk_options = 0x40000000;
+
+#ifdef SWELL_TARGET_WAYLAND
+    swell_wayland_init_titlebar_height();
+    swell_wayland_suppress_csd_shadow_once();
+#endif
 
     if (swell_gdk_option("gdk_owned_windows_keep_above", "auto (default is 1)",1))
       gdk_options|=OPTION_KEEP_OWNED_ABOVE;
@@ -732,8 +803,17 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           gtk_window_set_title(GTK_WINDOW(gtk_win), hwnd->m_title.Get());
         }
 
-        gtk_window_set_default_size(GTK_WINDOW(gtk_win), r.right - r.left, r.bottom - r.top);
+        gtk_window_set_default_size(GTK_WINDOW(gtk_win),
+                                     r.right - r.left + (swell_wayland_needs_manual_titlebar(hwnd) ? SWELL_WAYLAND_BORDER_WIDTH*2 : 0),
+                                     r.bottom - r.top + (swell_wayland_needs_manual_titlebar(hwnd) ? g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2 : 0));
         hwnd->m_oswidget = gtk_win;
+
+#ifdef SWELL_TARGET_WAYLAND
+        if (g_swell_wayland_title_h)
+        {
+          gtk_window_set_titlebar(GTK_WINDOW(gtk_win), gtk_label_new(NULL));
+        }
+#endif
 
         // GTK sizes a toplevel to its content's natural size and asks
         // the compositor for that — ignoring gtk_window_set_default_size when the
@@ -750,6 +830,13 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           int rw = r.right - r.left, rh = r.bottom - r.top;
           if (rw < 1) rw = 1;
           if (rh < 1) rh = 1;
+#ifdef SWELL_TARGET_WAYLAND
+          if (swell_wayland_needs_manual_titlebar(hwnd))
+          {
+            rw += SWELL_WAYLAND_BORDER_WIDTH*2;
+            rh += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2;
+          }
+#endif
           GdkGeometry gh;
           gh.min_width = gh.max_width = rw;
           gh.min_height = gh.max_height = rh;
@@ -852,7 +939,6 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
                 0, 0);
           }
         }
-        gtk_widget_show(gtk_win);
         hwnd->m_oswindow = gtk_widget_get_window(gtk_win);
 #else
         GdkWindowAttr attr={0,};
@@ -963,10 +1049,14 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
           if (hwnd->m_oswindow_fullscreen)
             gdk_window_fullscreen(hwnd->m_oswindow);
 
+#ifdef SWELL_TARGET_WAYLAND
+          gtk_widget_show(gtk_win);
+#else
           if (!swell_app_is_inactive && !s_force_window_time)
             gdk_window_show(hwnd->m_oswindow);
           else
             gdk_window_show_unraised(hwnd->m_oswindow);
+#endif
 
           if (s_last_desktop>0)
             _gdk_x11_window_move_to_desktop(hwnd->m_oswindow,s_last_desktop-1);
@@ -1009,7 +1099,17 @@ void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
 
     GdkRectangle rrr={rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top};
 #ifdef SWELL_TARGET_WAYLAND
-    gdk_window_invalidate_rect(hwnd->m_oswindow, &rrr, FALSE);
+    if (swell_wayland_needs_manual_titlebar(hwnd))
+    {
+      rrr.x += SWELL_WAYLAND_BORDER_WIDTH;
+      rrr.y += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+      rrr.width += SWELL_WAYLAND_BORDER_WIDTH;
+      rrr.height += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+    }
+    if (hwnd->m_oswidget)
+      gtk_widget_queue_draw_area(GTK_WIDGET(hwnd->m_oswidget), rrr.x, rrr.y, rrr.width, rrr.height);
+    else
+      gdk_window_invalidate_rect(hwnd->m_oswindow, &rrr, FALSE);
     return;
 #endif
     gdk_window_begin_paint_rect(hwnd->m_oswindow, &rrr);
@@ -1268,6 +1368,138 @@ static void OnSelectionRequestEvent(GdkEventSelection *b)
   gdk_selection_send_notify(b->requestor,b->selection,b->target,prop,GDK_CURRENT_TIME);
 }
 
+#ifdef SWELL_TARGET_WAYLAND
+static bool swell_wayland_is_maximized(HWND hwnd)
+{
+  if (hwnd && hwnd->m_oswidget && GTK_IS_WINDOW(hwnd->m_oswidget))
+    return gtk_window_is_maximized(GTK_WINDOW(hwnd->m_oswidget));
+  return hwnd && hwnd->m_is_maximized;
+}
+
+static void swell_wayland_paint_manual_titlebar(HWND hwnd, GdkWindow *window)
+{
+  const int w = hwnd->m_position.right - hwnd->m_position.left; // REAPER's own logical width
+  if (w <= 0) return;
+  const int bw = SWELL_WAYLAND_BORDER_WIDTH;
+  const int full_w = w + bw*2; // actual OS window width, including left+right border
+  const int logical_h = hwnd->m_position.bottom - hwnd->m_position.top;
+  const int full_h = g_swell_wayland_title_h + logical_h + bw*2; // top border + titlebar + content + bottom border
+  const bool is_focused = (hwnd->m_oswindow == SWELL_focused_oswindow);
+
+  cairo_t *cr = gdk_cairo_create(window);
+  cairo_set_antialias(cr, CAIRO_ANTIALIAS_NONE);
+
+  if (is_focused)
+    cairo_set_source_rgb(cr, 60/255.0, 198/255.0, 251/255.0); // #3CC6FB
+  else
+    cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
+  cairo_rectangle(cr, 0, 0, full_w, bw); // top
+  cairo_fill(cr);
+  cairo_rectangle(cr, 0, 0, bw, full_h); // left
+  cairo_fill(cr);
+  cairo_rectangle(cr, full_w - bw, 0, bw, full_h); // right
+  cairo_fill(cr);
+  cairo_rectangle(cr, 0, full_h - bw, full_w, bw); // bottom
+  cairo_fill(cr);
+
+  cairo_set_source_rgb(cr, 0.16, 0.16, 0.16);
+  cairo_rectangle(cr, bw, bw, full_w - bw*2, g_swell_wayland_title_h);
+  cairo_fill(cr);
+
+  const bool has_minmax = (hwnd->m_style & WS_THICKFRAME) != 0;
+  const char *title = hwnd->m_title.Get();
+  if (title && title[0])
+  {
+    cairo_set_source_rgb(cr, 0.85, 0.85, 0.85);
+    cairo_select_font_face(cr, "sans-serif", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+    cairo_set_font_size(cr, 13.0);
+    cairo_text_extents_t ext;
+    cairo_text_extents(cr, title, &ext);
+    cairo_move_to(cr, 8 + bw, bw + (g_swell_wayland_title_h + ext.height) / 2.0);
+    cairo_show_text(cr, title);
+  }
+
+  const double cy = bw + g_swell_wayland_title_h / 2.0;
+  cairo_set_source_rgb(cr, 0.85, 0.85, 0.85);
+  cairo_set_line_width(cr, 1.5);
+
+  {
+    const double cx = full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W / 2.0;
+    const double half = 5.0;
+    cairo_move_to(cr, cx-half, cy-half); cairo_line_to(cr, cx+half, cy+half);
+    cairo_move_to(cr, cx-half, cy+half); cairo_line_to(cr, cx+half, cy-half);
+    cairo_stroke(cr);
+  }
+
+  if (has_minmax)
+  {
+    const double cx = full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W * 1.5;
+    const double half = 5.0;
+    if (swell_wayland_is_maximized(hwnd))
+    {
+      cairo_rectangle(cr, cx-half+3, cy-half, half*2-3, half*2-3);
+      cairo_stroke(cr);
+      cairo_rectangle(cr, cx-half, cy-half+3, half*2-3, half*2-3);
+      cairo_stroke(cr);
+    }
+    else
+    {
+      cairo_rectangle(cr, cx-half, cy-half, half*2, half*2);
+      cairo_stroke(cr);
+    }
+
+    const double cx2 = full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W * 2.5;
+    cairo_move_to(cr, cx2-half, cy+half); cairo_line_to(cr, cx2+half, cy+half);
+    cairo_stroke(cr);
+  }
+
+  cairo_destroy(cr);
+}
+
+static int swell_wayland_titlebar_hittest(HWND hwnd, int x, int y)
+{
+  const int bw = SWELL_WAYLAND_BORDER_WIDTH;
+  if (y < bw || y >= bw + g_swell_wayland_title_h) return 0;
+  const int full_w = (hwnd->m_position.right - hwnd->m_position.left) + bw*2;
+  if (x >= full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W) return 1;
+  if (hwnd->m_style & WS_THICKFRAME)
+  {
+    if (x >= full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W*2) return 3;
+    if (x >= full_w - bw - SWELL_WAYLAND_TITLEBAR_CLOSEBTN_W*3) return 4;
+  }
+  return 2;
+}
+
+#define SWELL_WAYLAND_RESIZE_MARGIN 6
+
+static GdkWindowEdge swell_wayland_resize_edge_hittest(HWND hwnd, int x, int y, bool *found)
+{
+  *found = false;
+  int w = hwnd->m_position.right - hwnd->m_position.left;
+  int h = hwnd->m_position.bottom - hwnd->m_position.top;
+  if (swell_wayland_needs_manual_titlebar(hwnd))
+  {
+    w += SWELL_WAYLAND_BORDER_WIDTH*2;
+    h += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2;
+  }
+  const int m = SWELL_WAYLAND_RESIZE_MARGIN;
+
+  const bool left = x < m, right = x >= w-m;
+  const bool top = y < m, bottom = y >= h-m;
+
+  if (!left && !right && !top && !bottom) return GDK_WINDOW_EDGE_SOUTH_EAST; // unused, *found stays false
+  *found = true;
+  if (top && left) return GDK_WINDOW_EDGE_NORTH_WEST;
+  if (top && right) return GDK_WINDOW_EDGE_NORTH_EAST;
+  if (bottom && left) return GDK_WINDOW_EDGE_SOUTH_WEST;
+  if (bottom && right) return GDK_WINDOW_EDGE_SOUTH_EAST;
+  if (top) return GDK_WINDOW_EDGE_NORTH;
+  if (bottom) return GDK_WINDOW_EDGE_SOUTH;
+  if (left) return GDK_WINDOW_EDGE_WEST;
+  return GDK_WINDOW_EDGE_EAST;
+}
+#endif
+
 static void OnExposeEvent(GdkEventExpose *exp)
 {
   HWND hwnd = swell_oswindow_to_hwnd(exp->window);
@@ -1282,10 +1514,19 @@ static void OnExposeEvent(GdkEventExpose *exp)
   cr.right = hwnd->m_position.right - hwnd->m_position.left;
   cr.bottom = hwnd->m_position.bottom - hwnd->m_position.top;
 
-  r.left = exp->area.x; 
-  r.top=exp->area.y; 
-  r.bottom=r.top+exp->area.height; 
-  r.right=r.left+exp->area.width;
+  int title_h = 0, bw = 0;
+#ifdef SWELL_TARGET_WAYLAND
+  if (swell_wayland_needs_manual_titlebar(hwnd)) { title_h = g_swell_wayland_title_h; bw = SWELL_WAYLAND_BORDER_WIDTH; }
+#endif
+
+  r.left = exp->area.x - bw; 
+  r.top = exp->area.y - (title_h + bw); 
+  r.bottom=r.top+exp->area.height + (title_h + bw); 
+  r.right=r.left+exp->area.width + bw;
+  if (r.left < cr.left) r.left = cr.left;
+  if (r.right > cr.right) r.right = cr.right;
+  if (r.top < cr.top) r.top = cr.top;
+  if (r.bottom > cr.bottom) r.bottom = cr.bottom;
 
   if (!hwnd->m_backingstore) hwnd->m_backingstore = new LICE_CairoBitmap;
 
@@ -1294,24 +1535,29 @@ static void OnExposeEvent(GdkEventExpose *exp)
 
   LICE_SubBitmap tmpbm(hwnd->m_backingstore,r.left,r.top,r.right-r.left,r.bottom-r.top);
 
+  GdkRectangle rrr={exp->area.x, exp->area.y, (int)exp->area.width + bw, (int)exp->area.height + title_h + bw*2};
+  gdk_window_begin_paint_rect(exp->window, &rrr);
+
   if (tmpbm.getWidth()>0 && tmpbm.getHeight()>0) 
   {
     void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int bmout_ypos, bool forceref);
     SWELL_internalLICEpaint(hwnd, &tmpbm, r.left, r.top, forceref);
 
-    GdkRectangle rrr={r.left,r.top,r.right-r.left,r.bottom-r.top};
-    gdk_window_begin_paint_rect(exp->window, &rrr);
-
     cairo_t *crc = gdk_cairo_create (exp->window);
     LICE_IBitmap *bm = hwnd->m_backingstore;
     cairo_surface_t *temp_surface = (cairo_surface_t*)bm->Extended(0xca140,NULL);
-    if (temp_surface) cairo_set_source_surface(crc, temp_surface, 0,0);
+    if (temp_surface) cairo_set_source_surface(crc, temp_surface, bw, title_h + bw);
     cairo_paint(crc);
     cairo_destroy(crc);
     if (temp_surface) bm->Extended(0xca140,temp_surface); // release
+  }
+
+#ifdef SWELL_TARGET_WAYLAND
+    if (swell_wayland_needs_manual_titlebar(hwnd))
+      swell_wayland_paint_manual_titlebar(hwnd, exp->window);
+#endif
 
     gdk_window_end_paint(exp->window);
-  }
 #endif
 }
 
@@ -1319,20 +1565,32 @@ static void OnConfigureEvent(GdkEventConfigure *cfg)
 {
   HWND hwnd = swell_oswindow_to_hwnd(cfg->window);
   if (!hwnd) return;
+  int title_h = 0, bw = 0;
+#ifdef SWELL_TARGET_WAYLAND
+  if (swell_wayland_needs_manual_titlebar(hwnd))
+  {
+    title_h = g_swell_wayland_title_h;
+    bw = SWELL_WAYLAND_BORDER_WIDTH;
+  }
+#endif
+  int cfg_x = cfg->x + bw;
+  int cfg_y = cfg->y + title_h + bw;
+  int cfg_width = cfg->width - bw*2;
+  int cfg_height = cfg->height - title_h - bw*2;
   int flag=0;
-  if (cfg->x != hwnd->m_position.left || 
-      cfg->y != hwnd->m_position.top || 
+  if (cfg_x != hwnd->m_position.left || 
+      cfg_y != hwnd->m_position.top || 
       !hwnd->m_has_had_position)
   {
     flag|=1;
     hwnd->m_has_had_position = true;
   }
-  if (cfg->width != hwnd->m_position.right-hwnd->m_position.left || 
-      cfg->height != hwnd->m_position.bottom - hwnd->m_position.top) flag|=2;
-  hwnd->m_position.left = cfg->x;
-  hwnd->m_position.top = cfg->y;
-  hwnd->m_position.right = cfg->x + cfg->width;
-  hwnd->m_position.bottom = cfg->y + cfg->height;
+  if (cfg_width != hwnd->m_position.right-hwnd->m_position.left || 
+      cfg_height != hwnd->m_position.bottom - hwnd->m_position.top) flag|=2;
+  hwnd->m_position.left = cfg_x;
+  hwnd->m_position.top = cfg_y;
+  hwnd->m_position.right = cfg_x + cfg_width;
+  hwnd->m_position.bottom = cfg_y + cfg_height;
   if (flag&1) SendMessage(hwnd,WM_MOVE,0,0);
   if (flag&2) SendMessage(hwnd,WM_SIZE,hwnd->m_is_maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,0);
 #ifdef SWELL_TARGET_WAYLAND
@@ -1691,6 +1949,17 @@ static void OnMotionEvent(GdkEventMotion *m)
 {
   swell_lastMessagePos = MAKELONG(((int)m->x_root&0xffff),((int)m->y_root&0xffff));
 #ifdef SWELL_TARGET_WAYLAND
+  if (s_armed_drag_oswindow)
+  {
+    const int dx = (int)m->x_root - s_armed_drag_root_x;
+    const int dy = (int)m->y_root - s_armed_drag_root_y;
+    if (dx*dx + dy*dy >= 1*1) // ~1px threshold before committing to an actual drag
+    {
+      gdk_window_begin_move_drag(s_armed_drag_oswindow, s_armed_drag_button,
+                                  s_armed_drag_root_x, s_armed_drag_root_y, s_armed_drag_time);
+      s_armed_drag_oswindow = NULL;
+    }
+  }
   // Remember which real toplevel the pointer is over. m->window is the OS window the
   // motion occurred on, so this is authoritative without needing global coordinates
   // (which Wayland does not provide). Skip popups: tooltips and menus are both
@@ -1700,6 +1969,50 @@ static void OnMotionEvent(GdkEventMotion *m)
     HWND top = swell_oswindow_to_hwnd(m->window);
     if (top && top->m_oswidget && !(top->m_style & WS_CHILD))
       s_last_hover_oswindow = m->window;
+
+    static HWND s_last_edge_cursor_hwnd;
+    static bool s_last_edge_cursor_set;
+    if (top && (top->m_style & WS_THICKFRAME) && swell_wayland_needs_manual_titlebar(top) && top->m_oswindow)
+    {
+      bool found = false;
+      GdkWindowEdge edge = swell_wayland_resize_edge_hittest(top, (int)m->x, (int)m->y, &found);
+      if (found)
+      {
+        GdkCursorType ct;
+        switch (edge)
+        {
+          case GDK_WINDOW_EDGE_NORTH_WEST: ct = GDK_TOP_LEFT_CORNER; break;
+          case GDK_WINDOW_EDGE_NORTH: ct = GDK_TOP_SIDE; break;
+          case GDK_WINDOW_EDGE_NORTH_EAST: ct = GDK_TOP_RIGHT_CORNER; break;
+          case GDK_WINDOW_EDGE_WEST: ct = GDK_LEFT_SIDE; break;
+          case GDK_WINDOW_EDGE_EAST: ct = GDK_RIGHT_SIDE; break;
+          case GDK_WINDOW_EDGE_SOUTH_WEST: ct = GDK_BOTTOM_LEFT_CORNER; break;
+          case GDK_WINDOW_EDGE_SOUTH: ct = GDK_BOTTOM_SIDE; break;
+          default: ct = GDK_BOTTOM_RIGHT_CORNER; break;
+        }
+        GdkCursor *cursor = gdk_cursor_new_for_display(gdk_window_get_display(top->m_oswindow), ct);
+        gdk_window_set_cursor(top->m_oswindow, cursor);
+        g_object_unref(cursor);
+        s_last_edge_cursor_hwnd = top;
+        s_last_edge_cursor_set = true;
+      }
+      else if (s_last_edge_cursor_set && s_last_edge_cursor_hwnd == top)
+      {
+        gdk_window_set_cursor(top->m_oswindow, NULL);
+        s_last_edge_cursor_set = false;
+      }
+    }
+    else if (s_last_edge_cursor_set && top == s_last_edge_cursor_hwnd)
+    {
+      if (top->m_oswindow) gdk_window_set_cursor(top->m_oswindow, NULL);
+      s_last_edge_cursor_set = false;
+    }
+
+    if (swell_wayland_needs_manual_titlebar(top))
+    {
+      m->x -= SWELL_WAYLAND_BORDER_WIDTH;
+      m->y -= g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+    }
   }
 #endif
   POINT p={(int)m->x, (int)m->y};
@@ -1718,6 +2031,13 @@ static void OnMotionEvent(GdkEventMotion *m)
 static void OnScrollEvent(GdkEventScroll *b)
 {
   swell_lastMessagePos = MAKELONG(((int)b->x_root&0xffff),((int)b->y_root&0xffff));
+#ifdef SWELL_TARGET_WAYLAND
+  if (swell_wayland_needs_manual_titlebar(swell_oswindow_to_hwnd(b->window)))
+  {
+    b->x -= SWELL_WAYLAND_BORDER_WIDTH;
+    b->y -= g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+  }
+#endif
   POINT p={(int)b->x, (int)b->y};
 
   HWND hwnd = getMouseTarget(b->window,p,NULL);
@@ -1726,6 +2046,18 @@ static void OnScrollEvent(GdkEventScroll *b)
     POINT p2={(int)b->x_root, (int)b->y_root};
     // p2 is screen coordinates for WM_MOUSEWHEEL
 
+    if (b->direction == GDK_SCROLL_SMOOTH)
+    {
+      const double dy = b->delta_y * 120.0, dx = b->delta_x * 120.0;
+      const int vy = -(int)(dy >= 0 ? dy + 0.5 : dy - 0.5);
+      const int vx = -(int)(dx >= 0 ? dx + 0.5 : dx - 0.5);
+      if (hwnd) hwnd->Retain();
+      if (vy) SWELL_SendMouseMessage(hwnd, WM_MOUSEWHEEL, (vy<<16), MAKELPARAM(p2.x, p2.y));
+      if (vx) SWELL_SendMouseMessage(hwnd, WM_MOUSEHWHEEL, (vx<<16), MAKELPARAM(p2.x, p2.y));
+      if (hwnd) hwnd->Release();
+    }
+    else
+    {
     int msg=(b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_DOWN) ? WM_MOUSEWHEEL :
             (b->direction == GDK_SCROLL_LEFT || b->direction == GDK_SCROLL_RIGHT) ? WM_MOUSEHWHEEL : 0;
   
@@ -1737,6 +2069,7 @@ static void OnScrollEvent(GdkEventScroll *b)
       SWELL_SendMouseMessage(hwnd, msg, (v<<16), MAKELPARAM(p2.x, p2.y));
       if (hwnd) hwnd->Release();
     }
+    }
   }
 }
 
@@ -1746,6 +2079,75 @@ static void OnButtonEvent(GdkEventButton *b)
 {
   HWND hwnd = swell_oswindow_to_hwnd(b->window);
   if (!hwnd) return;
+
+#ifdef SWELL_TARGET_WAYLAND
+  if (b->type == GDK_BUTTON_RELEASE)
+    s_armed_drag_oswindow = NULL;
+
+  if (swell_wayland_needs_manual_titlebar(hwnd) && b->type == GDK_BUTTON_PRESS)
+  {
+    if ((hwnd->m_style & WS_THICKFRAME) && hwnd->m_oswindow)
+    {
+      bool found = false;
+      GdkWindowEdge edge = swell_wayland_resize_edge_hittest(hwnd, (int)b->x, (int)b->y, &found);
+      if (found)
+      {
+        gdk_window_begin_resize_drag(hwnd->m_oswindow, edge, b->button, (gint)b->x_root, (gint)b->y_root, b->time);
+        return;
+      }
+    }
+
+    const int hit = swell_wayland_titlebar_hittest(hwnd, (int)b->x, (int)b->y);
+    if (hit == 1)
+    {
+      if (IsWindowEnabled(hwnd) && !DestroyPopupMenus() && !SendMessage(hwnd,WM_CLOSE,0,0))
+        SendMessage(hwnd,WM_COMMAND,IDCANCEL,0);
+      return;
+    }
+    else if (hit == 3)
+    {
+      swell_oswindow_maximize(hwnd, !swell_wayland_is_maximized(hwnd));
+      return;
+    }
+    else if (hit == 4)
+    {
+      if (hwnd->m_oswindow) gdk_window_iconify(hwnd->m_oswindow);
+      return;
+    }
+    else if (hit == 2)
+    {
+      static DWORD s_last_titlebar_click_time;
+      static HWND s_last_titlebar_click_hwnd;
+      const bool is_dblclick = s_last_titlebar_click_hwnd == hwnd &&
+                                (b->time - s_last_titlebar_click_time) < 400;
+      if (is_dblclick)
+      {
+        s_last_titlebar_click_hwnd = NULL; // consume, so a third click isn't treated as part of this pair
+        if (hwnd->m_style & WS_THICKFRAME)
+          swell_oswindow_maximize(hwnd, !swell_wayland_is_maximized(hwnd));
+        return;
+      }
+      s_last_titlebar_click_time = b->time;
+      s_last_titlebar_click_hwnd = hwnd;
+
+      if (hwnd->m_oswindow)
+      {
+        s_armed_drag_oswindow = hwnd->m_oswindow;
+        s_armed_drag_button = b->button;
+        s_armed_drag_root_x = (gint)b->x_root;
+        s_armed_drag_root_y = (gint)b->y_root;
+        s_armed_drag_time = b->time;
+      }
+      return;
+    }
+  }
+  if (swell_wayland_needs_manual_titlebar(hwnd))
+  {
+    b->x -= SWELL_WAYLAND_BORDER_WIDTH;
+    b->y -= g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+  }
+#endif
+
   swell_lastMessagePos = MAKELONG(((int)b->x_root&0xffff),((int)b->y_root&0xffff));
   POINT p={(int)b->x, (int)b->y};
   HWND hwnd2 = getMouseTarget(b->window,p,&hwnd);
@@ -2032,8 +2434,16 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
             if (swell_ignore_focus_oswindow != fc->window || 
                 (GetTickCount()-swell_ignore_focus_oswindow_until) < 0x10000000)
             {
+#ifdef SWELL_TARGET_WAYLAND
+              SWELL_OSWINDOW old_focus = SWELL_focused_oswindow;
+              if (old_focus && old_focus != fc->window)
+                gdk_window_invalidate_rect(old_focus, NULL, FALSE);
+#endif
               SWELL_focused_oswindow = fc->window;
               update_menubar_activations();
+#ifdef SWELL_TARGET_WAYLAND
+              gdk_window_invalidate_rect(fc->window, NULL, FALSE);
+#endif
             }
             if (swell_app_is_inactive)
             {
@@ -2453,6 +2863,17 @@ void swell_oswindow_begin_resize(SWELL_OSWINDOW wnd)
 
 void swell_oswindow_resize(SWELL_OSWINDOW wnd, int reposflag, RECT f)
 {
+#ifdef SWELL_TARGET_WAYLAND
+  if (swell_wayland_needs_manual_titlebar(swell_oswindow_to_hwnd(wnd)))
+  {
+    const int w = f.right - f.left;
+    const int h = f.bottom - f.top;
+    f.left -= SWELL_WAYLAND_BORDER_WIDTH;
+    f.top -= g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH;
+    f.right = f.left + w + SWELL_WAYLAND_BORDER_WIDTH*2;
+    f.bottom = f.top + h + g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2;
+  }
+#endif
 #ifdef SWELL_GDK_IMPROVE_WINDOWRECT
   if (reposflag & 2)
   {
@@ -2489,6 +2910,13 @@ void swell_oswindow_postresize(HWND hwnd, RECT f)
     memset(&h,0,sizeof(h));
     h.max_width = h.min_width = f.right - f.left;
     h.max_height = h.min_height = f.bottom - f.top;
+#ifdef SWELL_TARGET_WAYLAND
+    if (swell_wayland_needs_manual_titlebar(hwnd))
+    {
+      h.max_width = h.min_width += SWELL_WAYLAND_BORDER_WIDTH*2;
+      h.max_height = h.min_height += g_swell_wayland_title_h + SWELL_WAYLAND_BORDER_WIDTH*2;
+    }
+#endif
     gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) ((hwnd->m_has_had_position ? GDK_HINT_POS : 0) | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
   }
 }
