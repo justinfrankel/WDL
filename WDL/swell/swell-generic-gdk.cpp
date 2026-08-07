@@ -252,7 +252,7 @@ static HWND s_wayland_active_tooltip;
 // and hover are independent (a tooltip for a REAPER control while Preferences held
 // focus would otherwise be parented to, and drawn inside, Preferences). Stored as the
 // OS window and re-resolved on use so a destroyed window cannot dangle.
-static SWELL_OSWINDOW s_last_hover_oswindow;
+SWELL_OSWINDOW s_last_hover_oswindow;
 bool PopupMenuIsActive();
 
 static SWELL_OSWINDOW s_armed_drag_oswindow;

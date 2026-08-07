@@ -42,6 +42,10 @@
 
 #include "swell-dlggen.h"
 
+#ifdef SWELL_TARGET_WAYLAND
+extern SWELL_OSWINDOW s_last_hover_oswindow;
+#endif
+
 #define EDIT_CURSOR_BLINK_LEN 500
 #define EDIT_CURSOR_CYCLE_INTERVAL 3
 
@@ -7029,6 +7033,19 @@ static HWND recurseOwnedWindowHitTest(HWND h, POINT p, int maxdepth)
 
 HWND WindowFromPoint(POINT p)
 {
+#ifdef SWELL_TARGET_WAYLAND
+  SWELL_OSWINDOW hov = s_last_hover_oswindow;
+  if (hov)
+  {
+    HWND hovhwnd = swell_oswindow_to_hwnd(hov);
+    if (hovhwnd)
+    {
+      HWND child = ChildWindowFromPoint(hovhwnd, p);
+      return child ? child : hovhwnd;
+    }
+  }
+  return NULL;
+#else
   HWND h = SWELL_topwindows;
   while (h)
   {
@@ -7040,6 +7057,7 @@ HWND WindowFromPoint(POINT p)
     h = h->m_next;
   }
   return NULL;
+#endif
 }
 
 #ifdef _DEBUG
