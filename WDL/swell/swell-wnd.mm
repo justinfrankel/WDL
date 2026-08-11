@@ -5641,6 +5641,8 @@ HWND WindowFromPoint(POINT p)
       if (p.x >= fr.origin.x && p.x < fr.origin.x + fr.size.width &&
           p.y >= fr.origin.y && p.y < fr.origin.y + fr.size.height)
       {
+        NSView *cv = [wnd contentView];
+        if ([cv isKindOfClass:[SWELL_FocusRectWnd class]]) continue;
         bestwnd=wnd;
         break;
       }    
