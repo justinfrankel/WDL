@@ -8508,10 +8508,11 @@ static LRESULT WINAPI focusRectWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
         PAINTSTRUCT ps;
         if (BeginPaint(hwnd,&ps))
         {
+          extern int *g_swell_focusrect_color;
           RECT r;
           GetClientRect(hwnd,&r);
-          HBRUSH br = CreateSolidBrushAlpha(g_swell_ctheme.focusrect,0.5f);
-          HPEN pen = CreatePen(0,PS_SOLID,g_swell_ctheme.focusrect);
+          HBRUSH br = CreateSolidBrushAlpha(g_swell_focusrect_color ? *g_swell_focusrect_color : g_swell_ctheme.focusrect,0.5f);
+          HPEN pen = CreatePen(0,PS_SOLID,g_swell_focusrect_color ? *g_swell_focusrect_color : g_swell_ctheme.focusrect);
           HGDIOBJ oldbr = SelectObject(ps.hdc,br);
           HGDIOBJ oldpen = SelectObject(ps.hdc,pen);
           Rectangle(ps.hdc,0,0,r.right,r.bottom);

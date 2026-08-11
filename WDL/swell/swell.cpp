@@ -1103,6 +1103,8 @@ const char *g_swell_fontpangram;
 bool swell_gdk_set_fullscreen(HWND, int);
 #endif
 
+int *g_swell_focusrect_color;
+
 void *SWELL_ExtendedAPI(const char *key, void *v)
 {
   if (!strcmp(key,"APPNAME")) g_swell_appname = (const char *)v;
@@ -1217,6 +1219,7 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
   else if (!strcmp(key,"SWELL_DDrop_onDragOver")) { *(void **)&SWELL_DDrop_onDragOver = v; return v; }
   else if (!strcmp(key,"SWELL_DDrop_onDragEnter")) { *(void **)&SWELL_DDrop_onDragEnter = v; return v; }
   else if (!strcmp(key,"SWELL_DDrop_getDroppedFileTargetPath")) { *(void **)&SWELL_DDrop_getDroppedFileTargetPath = v; return v; }
+  else if (!strcmp(key,"focusrectcolor")) { g_swell_focusrect_color = (int *)v; return &g_swell_focusrect_color; }
   return NULL;
 }
 
