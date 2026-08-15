@@ -113,6 +113,9 @@ ifdef WAYLAND
   ifndef SWELL_SUPPORT_GTK
     SWELL_SUPPORT_GTK = 1
   endif
+  # spare-window for modal dialogs doesn't resize on an already 
+	# mapped Wayland so disable it
+  CFLAGS += -DSWELL_NO_SPARE_MODALDLG
 endif
 
 ifndef NOGDK
