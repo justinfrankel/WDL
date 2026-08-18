@@ -42,6 +42,10 @@
 
 #include "swell-dlggen.h"
 
+#ifdef SWELL_TARGET_WAYLAND
+extern SWELL_OSWINDOW s_last_hover_oswindow;
+#endif
+
 #define EDIT_CURSOR_BLINK_LEN 500
 #define EDIT_CURSOR_CYCLE_INTERVAL 3
 
@@ -136,6 +140,7 @@ HWND__::HWND__(HWND par, int wID, const RECT *wndr, const char *label, bool visi
      m_menu=NULL;
      m_font=NULL;
      m_oswindow = NULL;
+     m_oswidget = NULL;
 
 #ifdef SWELL_LICE_GDI
      m_paintctx=0;
@@ -7028,6 +7033,26 @@ static HWND recurseOwnedWindowHitTest(HWND h, POINT p, int maxdepth)
 
 HWND WindowFromPoint(POINT p)
 {
+#ifdef SWELL_TARGET_WAYLAND
+  // imgui fix
+  extern HWND g_wayland_hovered_hwnd;
+  if (g_wayland_hovered_hwnd)
+  {
+    HWND child = ChildWindowFromPoint(g_wayland_hovered_hwnd, p);
+    return child ? child : g_wayland_hovered_hwnd;
+  }
+  SWELL_OSWINDOW hov = s_last_hover_oswindow;
+  if (hov)
+  {
+    HWND hovhwnd = swell_oswindow_to_hwnd(hov);
+    if (hovhwnd)
+    {
+      HWND child = ChildWindowFromPoint(hovhwnd, p);
+      return child ? child : hovhwnd;
+    }
+  }
+  return NULL;
+#else
   HWND h = SWELL_topwindows;
   while (h)
   {
@@ -7039,6 +7064,7 @@ HWND WindowFromPoint(POINT p)
     h = h->m_next;
   }
   return NULL;
+#endif
 }
 
 #ifdef _DEBUG
