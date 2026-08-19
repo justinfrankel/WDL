@@ -1744,9 +1744,12 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
         if (yp<0) height+=yp;
         else { suby=yp; yp=0; }
 
-        LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
-        if (subbm.getWidth()>0 && subbm.getHeight()>0)
-          SWELL_internalLICEpaint(h,&subbm,-xp,-yp,forceref);
+        if (width > 0 && height > 0)
+        {
+          LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
+          if (subbm.getWidth()>0 && subbm.getHeight()>0)
+            SWELL_internalLICEpaint(h,&subbm,-xp,-yp,forceref);
+        }
       }
       h = h->m_next;
     }
