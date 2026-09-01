@@ -40,6 +40,7 @@ typedef unsigned long long WDL_UINT64;
 #include <windows.h>
 #include <stdio.h>
 #else
+#include <stddef.h>
 #include <stdint.h>
 typedef intptr_t INT_PTR;
 typedef uintptr_t UINT_PTR;
