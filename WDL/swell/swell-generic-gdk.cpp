@@ -1948,12 +1948,6 @@ void SWELL_RunEvents()
 {
   if (SWELL_gdk_active>0) 
   {
-#if 0 && defined(SWELL_SUPPORT_GTK)
-    // does not seem to be necessary
-    while (gtk_events_pending())
-      gtk_main_iteration();
-#else
-
 #if SWELL_TARGET_GDK == 2
     gdk_window_process_all_updates();
 #endif
@@ -1968,7 +1962,6 @@ void SWELL_RunEvents()
         gdk_event_free(evt);
       }
     }
-#endif
 
     DWORD dt;
     if (s_ddrop_forward_last_has_dropped &&
