@@ -1893,7 +1893,7 @@ static bool editGetCharPos(HDC hdc, const char *str, int singleline_len, int cha
       lb = *use_cache++;
       if (WDL_NOT_NORMALLY(lb < 1)) break;
     }
-    if (bytepos < lb+pskip)
+    if (bytepos < lb+pskip || (!str[lb+pskip] && (lb+pskip<1 || str[lb+pskip-1] != '\n')))
     { 
       pt->x=editMeasureLineLength(hdc,str,bytepos);
       pt->y=ypos;
