@@ -77,6 +77,29 @@ public:
   {
     void *(*SWELLAPI_GetFunc)(const char *name)=NULL;
     char fn[4096];
+    bool swell_gtk_disabled = false;
+
+    // parse command line to look for --no-gtk
+    FILE *fp = fopen("/proc/self/cmdline","rb");
+    if (fp)
+    {
+      int l = fread(fn,1,sizeof(fn),fp);
+      if (l>0)
+      {
+        const char *p = fn;
+        const char * const ep = fn + l;
+        while (p < ep)
+        {
+          const char * const tok = p;
+          while (p < ep && *p) p++;
+          if (p >= ep) break;
+          if (!strcmp(tok,"--no-gtk")) swell_gtk_disabled = true;
+          p++;
+        }
+      }
+      fclose(fp);
+    }
+
     const int nSize=sizeof(fn)-64;
     int sz=readlink("/proc/self/exe",fn,nSize);
     if (sz<1)
@@ -101,9 +124,15 @@ public:
       printf("Error loading '%s': %s\n",fn,dlerror());
       exit(2);
     }
-    const char *preload_fn = (const char *)dlsym(tmp,"SWELL_WANT_LOAD_LIBRARY");
-    if (preload_fn && *preload_fn)
-      dlopen(preload_fn,RTLD_LAZY|RTLD_GLOBAL);
+
+    for (int x = 0; x < 5; x++)
+    {
+      if (x) snprintf(fn,sizeof(fn),"SWELL_WANT_LOAD_LIBRARY%d",x+1);
+      const char *preload_fn = (const char *)dlsym(tmp,x ? fn : "SWELL_WANT_LOAD_LIBRARY");
+      if (!preload_fn || !*preload_fn) break;
+      if (swell_gtk_disabled && strstr(preload_fn,"gtk")) continue;
+      if (dlopen(preload_fn,RTLD_LAZY|RTLD_GLOBAL)) break;
+    }
 
     *(void **)&SWELLAPI_GetFunc = dlsym(tmp,"SWELLAPI_GetFunc"); 
       

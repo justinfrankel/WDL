@@ -32,6 +32,12 @@
 #define STR2(x) STR(x)
 extern "C" {
   char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY[] = STR2(SWELL_PRELOAD);
+  #ifdef SWELL_PRELOAD2
+  char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY2[] = STR2(SWELL_PRELOAD2);
+  #endif
+  #ifdef SWELL_PRELOAD3
+  char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY3[] = STR2(SWELL_PRELOAD3);
+  #endif
 };
 #undef STR
 #undef STR2
@@ -347,6 +353,11 @@ void swell_recalcMinMaxInfo(HWND hwnd)
   gdk_window_set_geometry_hints(hwnd->m_oswindow,&h,(GdkWindowHints) ((hwnd->m_has_had_position ? GDK_HINT_POS : 0) | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
 }
 
+#ifdef SWELL_SUPPORT_GTK
+gboolean (*swell_gtk_init_check)(int *argc, char ***argv);
+void (*swell_gtk_main_do_event)(GdkEvent *);
+#endif
+
 void SWELL_initargs(int *argc, char ***argv) 
 {
   if (!SWELL_gdk_active) 
@@ -363,10 +374,29 @@ void SWELL_initargs(int *argc, char ***argv)
 #endif
 
 #ifdef SWELL_SUPPORT_GTK
-    SWELL_gdk_active = gtk_init_check(argc,argv) ? 1 : -1;
-#else
-    SWELL_gdk_active = gdk_init_check(argc,argv) ? 1 : -1;
+    bool try_gtk = true;
+    for (int x = 1; x < *argc; x ++)
+      if (!strcmp((*argv)[x],"--no-gtk"))
+        try_gtk = false;
+
+    if (try_gtk)
+    {
+      *(void **)&swell_gtk_init_check = dlsym(RTLD_DEFAULT,"gtk_init_check");
+      *(void **)&swell_gtk_main_do_event = dlsym(RTLD_DEFAULT,"gtk_main_do_event");
+    }
+    if (swell_gtk_init_check && swell_gtk_main_do_event)
+    {
+      SWELL_gdk_active = swell_gtk_init_check(argc,argv) ? 1 : -1;
+    }
+    else
+    {
+      swell_gtk_main_do_event = NULL;
+      swell_gtk_init_check = NULL;
+    }
 #endif
+
+    if (!SWELL_gdk_active)
+      SWELL_gdk_active = gdk_init_check(argc,argv) ? 1 : -1;
     if (SWELL_gdk_active > 0)
     {
       char buf[1024];
@@ -1905,7 +1935,8 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
     break;
   }
 #ifdef SWELL_SUPPORT_GTK
-  gtk_main_do_event(evt);
+  if (swell_gtk_main_do_event)
+    swell_gtk_main_do_event(evt);
 #endif
   s_cur_evt = oldEvt;
 }
