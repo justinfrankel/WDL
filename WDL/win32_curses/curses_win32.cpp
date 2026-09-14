@@ -429,6 +429,9 @@ LRESULT CALLBACK cursesWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lP
   ctx->need_redraw|=1;
       #endif
       SetTimer(hwnd,CURSOR_BLINK_TIMER,CURSOR_BLINK_TIMER_MS,NULL);
+#if !defined(_WIN32) && !defined(__APPLE__)
+      SetProp(hwnd,"SWELL_IME_ENABLE",(HANDLE)(INT_PTR)1);
+#endif
     return 0;
     case WM_ERASEBKGND:
     return 1;
