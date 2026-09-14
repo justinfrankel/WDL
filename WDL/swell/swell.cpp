@@ -1215,6 +1215,13 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
     swell_gdk_prevent_screensaver(key[0] != '-', (const char *) v);
   }
 #endif
+#ifdef SWELL_SUPPORT_GTK
+  else if (!strcmp(key,"IME_ENABLED"))
+  {
+    extern bool swell_ime_enabled;
+    return &swell_ime_enabled;
+  }
+#endif
   else if (!strcmp(key,"SWELL_DDrop_onDragLeave")) { *(void **)&SWELL_DDrop_onDragLeave = v; return v; }
   else if (!strcmp(key,"SWELL_DDrop_onDragOver")) { *(void **)&SWELL_DDrop_onDragOver = v; return v; }
   else if (!strcmp(key,"SWELL_DDrop_onDragEnter")) { *(void **)&SWELL_DDrop_onDragEnter = v; return v; }

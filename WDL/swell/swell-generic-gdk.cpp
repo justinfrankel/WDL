@@ -62,6 +62,12 @@ extern "C" {
 #include <GL/gl.h>
 #include <GL/glx.h>
 
+#ifdef SWELL_SUPPORT_GTK
+void swell_im_update_candidates_location();
+extern HWND swell_ime_target;
+extern GtkIMContext *swell_ime_context;
+#endif
+
 static void (*_gdk_drag_drop_done)(GdkDragContext *, gboolean); // may not always be available
 
 static guint32 _gdk_x11_window_get_desktop(GdkWindow *window)
@@ -356,6 +362,13 @@ void swell_recalcMinMaxInfo(HWND hwnd)
 #ifdef SWELL_SUPPORT_GTK
 gboolean (*swell_gtk_init_check)(int *argc, char ***argv);
 void (*swell_gtk_main_do_event)(GdkEvent *);
+gboolean (*swell_gtk_im_context_filter_keypress)(GtkIMContext *context, GdkEventKey *event);
+void (*swell_gtk_im_context_set_cursor_location)(GtkIMContext *, const GdkRectangle *);
+GtkIMContext *(*swell_gtk_im_multicontext_new)(void);
+void (*swell_gtk_im_context_set_client_window)(GtkIMContext *context, GdkWindow *window);
+void (*swell_gtk_im_context_get_preedit_string)(GtkIMContext *, gchar **, PangoAttrList **, gint *);
+void (*swell_gtk_im_context_focus_in)(GtkIMContext *);
+void (*swell_gtk_im_context_focus_out)(GtkIMContext *);
 #endif
 
 void SWELL_initargs(int *argc, char ***argv) 
@@ -383,6 +396,13 @@ void SWELL_initargs(int *argc, char ***argv)
     {
       *(void **)&swell_gtk_init_check = dlsym(RTLD_DEFAULT,"gtk_init_check");
       *(void **)&swell_gtk_main_do_event = dlsym(RTLD_DEFAULT,"gtk_main_do_event");
+      *(void **)&swell_gtk_im_context_filter_keypress = dlsym(RTLD_DEFAULT,"gtk_im_context_filter_keypress");
+      *(void **)&swell_gtk_im_context_set_cursor_location = dlsym(RTLD_DEFAULT, "gtk_im_context_set_cursor_location");
+      *(void **)&swell_gtk_im_multicontext_new = dlsym(RTLD_DEFAULT, "gtk_im_multicontext_new");
+      *(void **)&swell_gtk_im_context_set_client_window = dlsym(RTLD_DEFAULT, "gtk_im_context_set_client_window");
+      *(void **)&swell_gtk_im_context_get_preedit_string = dlsym(RTLD_DEFAULT, "gtk_im_context_get_preedit_string");
+      *(void **)&swell_gtk_im_context_focus_in = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_in");
+      *(void **)&swell_gtk_im_context_focus_out = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_out");
     }
     if (swell_gtk_init_check && swell_gtk_main_do_event)
     {
@@ -392,6 +412,13 @@ void SWELL_initargs(int *argc, char ***argv)
     {
       swell_gtk_main_do_event = NULL;
       swell_gtk_init_check = NULL;
+      swell_gtk_im_context_set_cursor_location = NULL;
+      swell_gtk_im_context_filter_keypress = NULL;
+      swell_gtk_im_context_set_client_window = NULL;
+      swell_gtk_im_multicontext_new = NULL;
+      swell_gtk_im_context_get_preedit_string = NULL;
+      swell_gtk_im_context_focus_in = NULL;
+      swell_gtk_im_context_focus_out = NULL;
     }
 #endif
 
@@ -1431,6 +1458,14 @@ static void OnKeyEvent(GdkEventKey *k)
   MSG msg = { hwnd, msgtype, kv, modifiers, };
   INT_PTR extra_flags = 0;
   if (DialogBoxIsActive()) extra_flags |= 1;
+
+#ifdef SWELL_SUPPORT_GTK
+  if (hwnd == swell_ime_target &&
+      swell_ime_context &&
+      swell_gtk_im_context_filter_keypress &&
+      swell_gtk_im_context_filter_keypress(swell_ime_context, k))
+        return;
+#endif
   if (SWELLAppMain(SWELLAPP_PROCESSMESSAGE,(INT_PTR)&msg,extra_flags)<=0)
     SendMessage(hwnd, msg.message, kv, modifiers);
 }
@@ -1830,6 +1865,9 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
     case GDK_KEY_PRESS:
     case GDK_KEY_RELEASE:
       swell_dlg_destroyspare();
+#ifdef SWELL_SUPPORT_GTK
+      swell_im_update_candidates_location();
+#endif
       OnKeyEvent((GdkEventKey *)evt);
     break;
 #ifdef GDK_AVAILABLE_IN_3_4
