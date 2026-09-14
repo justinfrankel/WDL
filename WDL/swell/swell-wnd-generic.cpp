@@ -3766,11 +3766,16 @@ popupMenu:
 
           if ((hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST)
           {
+            WDL_FastString *title = &hwnd->m_title;
+            int sel1 = focused ? s->editstate.sel1 : -1;
+            int sel2 = focused ? s->editstate.sel2 : -1;
+            if (sel1>0) sel1 = utf8fs_charpos_to_bytepos(title, sel1);
+            if (sel2>0) sel2 = utf8fs_charpos_to_bytepos(title, sel2);
             r.right -= SWELL_UI_SCALE(buttonwid+5);
             r.left -= s->editstate.scroll_x;
-            editControlPaintLine(ps.hdc, hwnd->m_title.Get(), hwnd->m_title.GetLength(),
+            editControlPaintLine(ps.hdc, title->Get(), title->GetLength(),
                 s->editstate.cursor_state!=0 ? cursor_pos : -1,
-                focused ? s->editstate.sel1 : -1, focused ? s->editstate.sel2 : -1, &r, DT_VCENTER);
+                sel1, sel2, &r, DT_VCENTER);
           }
           else
           {
