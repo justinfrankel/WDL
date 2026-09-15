@@ -7794,7 +7794,7 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (swell_im_hwnd_want(hwnd))
         {
           static bool one_try;
-          if (!swell_ime_context && !one_try)
+          if (!swell_ime_context && swell_gtk_im_multicontext_new && !one_try)
           {
             one_try = true;
             swell_ime_context = swell_gtk_im_multicontext_new();
