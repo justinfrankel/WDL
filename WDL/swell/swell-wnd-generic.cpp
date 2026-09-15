@@ -9002,6 +9002,7 @@ void swell_im_update_candidates_location()
 static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int &sel1, int &sel2, int &cursor_pos, WDL_FastString *title_out)
 {
   if (!hwnd || swell_ime_target != hwnd || !swell_ime_context) return false;
+  if (!swell_ime_preedit_str) return false;
 
   cursor_pos = wdl_clamp(cursor_pos, 0, hwnd->m_title.GetLength());
 
