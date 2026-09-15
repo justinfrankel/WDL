@@ -3484,7 +3484,7 @@ class __SWELL_ComboBoxInternalState
 static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
   static const int buttonwid = 16;
-  static int s_capmode_state;
+  static int s_capmode_state; // extended state 100, means "set sel1/sel2 to cursor_pos on drag"
   __SWELL_ComboBoxInternalState *s = (__SWELL_ComboBoxInternalState*)hwnd->m_private_data;
   if (msg >= CB_ADDSTRING && msg <= CB_INITSTORAGE)
   {
@@ -3658,7 +3658,11 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
           ReleaseDC(hwnd,hdc);
 
+          const int oldsel1 = s->editstate.sel1, oldsel2 = s->editstate.sel2;
           SetFocus(hwnd);
+
+          if (oldsel1 != s->editstate.sel1 || oldsel2 != s->editstate.sel2)
+            s_capmode_state = 100;
         }
         SetCapture(hwnd);
       }
@@ -3667,7 +3671,7 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     case WM_MOUSEMOVE:
       if (GetCapture()==hwnd)
       {
-        if (s_capmode_state == 3 || s_capmode_state == 4)
+        if (s_capmode_state == 3 || s_capmode_state == 4 || s_capmode_state == 100)
         {
           const bool multiline = (hwnd->m_style & ES_MULTILINE) != 0;
           int xo=3;
@@ -3680,6 +3684,12 @@ static LRESULT WINAPI comboWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
               );
           ReleaseDC(hwnd,hdc);
 
+          if (s_capmode_state==100)
+          {
+            if (p == s->editstate.cursor_pos) return 0;
+            s_capmode_state=4;
+            s->editstate.sel1 = s->editstate.sel2 = s->editstate.cursor_pos;
+          }
           s->editstate.onMouseDrag(s_capmode_state,p);
           s->editstate.autoScrollToOffset(hwnd,p,false,false, SWELL_UI_SCALE(buttonwid+2));
 
@@ -3936,6 +3946,8 @@ popupMenu:
       return 0;
 #endif
     case WM_SETFOCUS:
+      SendMessage(hwnd,EM_SETSEL,0,-1); // comboboxes get their text selected on focus
+    WDL_FALLTHROUGH;
     case WM_KILLFOCUS:
       InvalidateRect(hwnd,NULL,FALSE);
     break;
