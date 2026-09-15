@@ -108,6 +108,16 @@ LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
 
 OBJS = $(SWELL_OBJS)
 
+#Wayland (SWELL_TARGET_WAYLAND) depends on GTK3 so load it automatically
+ifdef WAYLAND
+  ifndef SWELL_SUPPORT_GTK
+    SWELL_SUPPORT_GTK = 1
+  endif
+  # spare-window for modal dialogs doesn't resize on an already 
+	# mapped Wayland so disable it
+  CFLAGS += -DSWELL_NO_SPARE_MODALDLG
+endif
+
 ifndef NOGDK
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
@@ -132,10 +142,13 @@ ifndef NOGDK
     else
       LINKEXTRA += -lX11 -lXi
       ifdef SWELL_SUPPORT_GTK
-        CFLAGS += -DSWELL_PRELOAD="libgtk+-3.so.0"
+        CFLAGS += -DSWELL_PRELOAD="libgtk-3.so.0"
       else
         CFLAGS += -DSWELL_PRELOAD="libgdk-3.so.0"
       endif
+    endif
+    ifdef WAYLAND
+      CFLAGS += -DSWELL_TARGET_WAYLAND
     endif
   endif
   CFLAGS += -DSWELL_LICE_GDI
