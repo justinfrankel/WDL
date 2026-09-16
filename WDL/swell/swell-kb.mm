@@ -206,8 +206,8 @@ int SWELL_MacKeyToWindowsKeyEx(void *nsevent, int *flags, int mode)
     if (code==8) code='\b';
   }
 
-  if (!(flag&FVIRTKEY)) flag&=~FSHIFT;
-  
+  if (!(flag&FVIRTKEY) && code >= 32 && code < 128) flag&=~FSHIFT;
+
   if (flags) *flags=flag;
   return code;
 }
