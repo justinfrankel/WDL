@@ -3719,15 +3719,43 @@ static void getHotSpotForFile(const char *fn, POINT *pt)
   fclose(fp);
 }
 
+struct swell_cursor_data { GdkPixbuf *pixbuf; int hotspot_x, hotspot_y; };
+
+static struct swell_cursor_data swell_load_cursor_pixbuf(const char *fn)
+{
+  GdkPixbuf *pb = gdk_pixbuf_new_from_file(fn, NULL);
+  if (!pb)
+    return {NULL, 0, 0};
+
+  POINT hotspot = {0, 0};
+  getHotSpotForFile(fn, &hotspot);
+
+  int quantized_scale = ((g_swell_ui_scale + 32) / 64) * 64;
+  if (quantized_scale != 256) {
+    const double s = quantized_scale / 256.0;
+    const int scaled_width = (int)(gdk_pixbuf_get_width(pb) * s + 0.5);
+    const int scaled_height = (int)(gdk_pixbuf_get_height(pb) * s + 0.5);
+
+    GdkPixbuf *scaled_pb = gdk_pixbuf_scale_simple(pb, scaled_width, scaled_height, GDK_INTERP_BILINEAR);
+    if (scaled_pb) {
+      g_object_unref(pb);
+      pb = scaled_pb;
+
+      hotspot.x = (int)(hotspot.x * s + 0.5);
+      hotspot.y = (int)(hotspot.y * s + 0.5);
+    }
+  }
+
+  return {pb, hotspot.x, hotspot.y};
+}
+
 HCURSOR SWELL_LoadCursorFromFile(const char *fn)
 {
-  GdkPixbuf *pb = gdk_pixbuf_new_from_file(fn,NULL);
-  if (pb) 
+  struct swell_cursor_data d = swell_load_cursor_pixbuf(fn);
+  if (d.pixbuf)
   {
-    POINT hs = {0,};
-    getHotSpotForFile(fn,&hs);
-    GdkCursor *curs = gdk_cursor_new_from_pixbuf(gdk_display_get_default(),pb,hs.x,hs.y);
-    g_object_unref(pb);
+    GdkCursor *curs = gdk_cursor_new_from_pixbuf(gdk_display_get_default(),d.pixbuf,d.hotspot_x,d.hotspot_y);
+    g_object_unref(d.pixbuf);
     return (HCURSOR) curs;
   }
   return NULL;
@@ -3759,12 +3787,13 @@ HCURSOR SWELL_LoadCursor(const char *_idx)
         GetModuleFileName(NULL,buf,sizeof(buf));
         WDL_remove_filepart(buf);
         snprintf_append(buf,sizeof(buf),"/Resources/%s.cur",p->resname);
-        GdkPixbuf *pb = gdk_pixbuf_new_from_file(buf,NULL);
-        if (pb) 
+        struct swell_cursor_data d = swell_load_cursor_pixbuf(buf);
+        if (d.pixbuf)
         {
-          getHotSpotForFile(buf,&p->hotspot);
-          GdkCursor *curs = gdk_cursor_new_from_pixbuf(gdk_display_get_default(),pb,p->hotspot.x,p->hotspot.y);
-          g_object_unref(pb);
+          p->hotspot.x = d.hotspot_x;
+          p->hotspot.y = d.hotspot_y;
+          GdkCursor *curs = gdk_cursor_new_from_pixbuf(gdk_display_get_default(),d.pixbuf,d.hotspot_x,d.hotspot_y);
+          g_object_unref(d.pixbuf);
           return (p->cachedCursor = (HCURSOR) curs);
         }
       }
