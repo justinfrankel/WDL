@@ -307,6 +307,8 @@ void swell_oswindow_update_text(HWND hwnd)
   }
 }
 
+static Window get_x11_first_child(Display *disp, Window xid);
+
 void swell_oswindow_focus(HWND hwnd)
 {
   if (!hwnd)
@@ -319,13 +321,35 @@ void swell_oswindow_focus(HWND hwnd)
   while (hwnd && !hwnd->m_oswindow) hwnd=hwnd->m_parent;
   if (hwnd && !swell_app_is_inactive)
   {
+    bool force = false;
+    if (SWELL_focused_oswindow == hwnd->m_oswindow)
+    {
+      // verify we already have focus
+      GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
+      Display *dpy = gdk_x11_display_get_xdisplay(display);
+      Window cf = 0;
+      int cfm = 0;
+      XGetInputFocus(dpy,&cf,&cfm);
+      if (!cf || (cf != GDK_WINDOW_XID(hwnd->m_oswindow) &&
+                  cf != get_x11_first_child(dpy,GDK_WINDOW_XID(hwnd->m_oswindow))))
+      {
+#ifdef _DEBUG
+        printf("swell-generic-gdk: our window (%d) was marked as focused, however another window (%d) was reported focused via XGetInputFocus(), correcting.\n",
+            (int)GDK_WINDOW_XID(hwnd->m_oswindow), (int)cf);
+#endif
+        // some other window actually has focus, we missed a notification, apparently, correct this
+        force = true;
+      }
+    }
+
     gdk_window_raise(hwnd->m_oswindow);
-    if (hwnd->m_oswindow != SWELL_focused_oswindow)
+
+    if (force || hwnd->m_oswindow != SWELL_focused_oswindow)
     {
       SWELL_focused_oswindow = hwnd->m_oswindow;
       gdk_window_focus(hwnd->m_oswindow,GDK_CURRENT_TIME);
 
-      if (hwnd->m_style == WS_CHILD || (!(hwnd->m_style & WS_CAPTION) && (gdk_options&OPTION_BORDERLESS_OVERRIDEREDIRECT)))
+      if (force || hwnd->m_style == WS_CHILD || (!(hwnd->m_style & WS_CAPTION) && (gdk_options&OPTION_BORDERLESS_OVERRIDEREDIRECT)))
       {
         // WS_CHILD is used by menus to force override redirect
         // if override redirect, gdk_window_focus() uses_NET_ACTIVE_WINDOW, but xfce4/plasma do not set focus properly
