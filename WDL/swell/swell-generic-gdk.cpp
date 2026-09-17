@@ -324,6 +324,20 @@ void swell_oswindow_focus(HWND hwnd)
     {
       SWELL_focused_oswindow = hwnd->m_oswindow;
       gdk_window_focus(hwnd->m_oswindow,GDK_CURRENT_TIME);
+
+      if (hwnd->m_style == WS_CHILD || (!(hwnd->m_style & WS_CAPTION) && (gdk_options&OPTION_BORDERLESS_OVERRIDEREDIRECT)))
+      {
+        // WS_CHILD is used by menus to force override redirect
+        // if override redirect, gdk_window_focus() uses_NET_ACTIVE_WINDOW, but xfce4/plasma do not set focus properly
+        if (gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(hwnd->m_oswindow), gdk_atom_intern_static_string("_NET_ACTIVE_WINDOW")))
+        {
+          GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
+          Display *dpy = gdk_x11_display_get_xdisplay(display);
+          gdk_x11_display_error_trap_push (display);
+          XSetInputFocus(dpy,GDK_WINDOW_XID(hwnd->m_oswindow),RevertToNone,CurrentTime);
+          gdk_x11_display_error_trap_pop_ignored (display);
+        }
+      }
       update_menubar_activations();
     }
   }
@@ -709,6 +723,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
 
           if (!(hwnd->m_style & WS_CAPTION)) 
           {
+            // WS_CHILD is used by menus to force override redirect
             if (hwnd->m_style != WS_CHILD && !(gdk_options&OPTION_BORDERLESS_OVERRIDEREDIRECT))
             {
               if (transient_for)
