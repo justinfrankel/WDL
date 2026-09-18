@@ -1374,10 +1374,25 @@ static id<MTLDevice> mtl_def_device()
   return m_isopaque;
 }
 
+#define SIZE_IN_LAYOUT_VERSION 0x1300 // macOS 0x1070 (10.7)+ should support this, but doesn't seem to be needed for macOS 12 at least. (confirmed needed on 26)
+#define SIZE_IN_LAYOUT() (SWELL_GetOSXVersion() >= SIZE_IN_LAYOUT_VERSION && ![self isHiddenOrHasHiddenAncestor])
+
+- (void)layout
+{
+  [super layout];
+  if (m_wndproc && !m_hashaddestroy && SIZE_IN_LAYOUT())
+  {
+    m_wndproc((HWND)self,WM_SIZE,0,0);
+  }
+}
+
 - (void)setFrame:(NSRect)frameRect 
 {
   [super setFrame:frameRect];
-  if (m_wndproc&&!m_hashaddestroy) m_wndproc((HWND)self,WM_SIZE,0,0);
+  if (m_wndproc && !m_hashaddestroy && !SIZE_IN_LAYOUT())
+  {
+    m_wndproc((HWND)self,WM_SIZE,0,0);
+  }
   HWND par = GetParent((HWND)self);
   if (par) InvalidateRect(par,NULL,FALSE);
 } 
