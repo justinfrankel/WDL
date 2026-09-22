@@ -120,6 +120,8 @@ typedef struct
 
 } SCROLLBAR;
 
+static int (*s_theme_index_override)(int themeidx);
+
 //
 //  Container structure for a cool scrollbar window.
 //
@@ -168,6 +170,7 @@ typedef struct
   int whichTheme;
   int get_theme() const
   {
+    if (s_theme_index_override) return s_theme_index_override(whichTheme);
     return whichTheme;
   }
 } SCROLLWND;
@@ -695,6 +698,7 @@ static COLORREF GetSBBackColor(const SCROLLWND *sw, HWND hwnd)
 
 void DrawAdHocVScrollbarEx(LICE_IBitmap* dest, const RECT* r, int pos, int page, int max, int wtheme, int mode)
 {
+  if (s_theme_index_override) wtheme = s_theme_index_override(wtheme);
   // mode 1: want zoom buttons
 
   const wdlscrollbar_themestate *theme = &s_scrollbar_theme[wtheme < 0 || wtheme >= MAX_SCROLLBAR_THEMES ? 0 : wtheme];
@@ -3938,4 +3942,9 @@ BOOL WINAPI CoolSB_SetThemeIndex(HWND hwnd, int idx)
   swnd->whichTheme = idx;
 
   return TRUE;
+}
+
+void WINAPI CoolSB_SetThemeIndexOverrideFunc(int (*f)(int themeidx))
+{
+  s_theme_index_override = f;
 }
