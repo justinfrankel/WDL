@@ -166,6 +166,10 @@ typedef struct
   void *(*getDeadAreaBitmap)(int, HWND, RECT *,int);
 
   int whichTheme;
+  int get_theme() const
+  {
+    return whichTheme;
+  }
 } SCROLLWND;
 
 
@@ -256,15 +260,16 @@ static wdlscrollbar_themestate s_scrollbar_theme[MAX_SCROLLBAR_THEMES];
 
 static wdlscrollbar_themestate *GetThemeForScrollWnd(const SCROLLWND *sw)
 {
-  if (!sw || sw->whichTheme >= MAX_SCROLLBAR_THEMES)
+  int theme;
+  if (!sw || (theme=sw->get_theme()) >= MAX_SCROLLBAR_THEMES)
     return &s_scrollbar_theme[0];
-  if (sw->whichTheme < 0) { static wdlscrollbar_themestate st; return &st; }
-  return &s_scrollbar_theme[sw->whichTheme];
+  if (theme < 0) { static wdlscrollbar_themestate st; return &st; }
+  return &s_scrollbar_theme[theme];
 }
 
 static COLORREF get_sys_color(const SCROLLWND *swnd, HWND hwnd, int val)
 {
-  if (swnd && swnd->whichTheme < 0) return GetSysColor(val);
+  if (swnd && swnd->get_theme() < 0) return GetSysColor(val);
   return CoolSB_GetSysColor(hwnd,val);
 }
 
@@ -822,7 +827,8 @@ static void DrawCheckedRect(const wdlscrollbar_themestate *theme, LICE_IBitmap *
     if(!isvert) nh *= 2;
     else nw *= 2;
 
-    if(!sb->liceBkgnd || sb->liceBkgnd->getWidth()!=nw || sb->liceBkgnd->getHeight()!=nh || sb->liceBkgnd_ver!=theme->imageVersion)
+    if(!sb->liceBkgnd || sb->liceBkgnd->getWidth()!=nw || sb->liceBkgnd->getHeight()!=nh || 
+        sb->liceBkgnd_ver!=theme->imageVersion)
     {
       sb->liceBkgnd_ver=theme->imageVersion;
       if(!sb->liceBkgnd) sb->liceBkgnd = new LICE_SysBitmap;
@@ -1299,7 +1305,8 @@ static void drawSkinThumb(HDC hdc, RECT r, int fBarHot, int pressed, int vert, c
       int tl = part1_s+part3_s+part5_s;
       if(w<tl) w = tl;
 
-      if(!sb->liceThumb || sb->liceThumb->getWidth()!=w || sb->liceThumb->getHeight()!=h || sb->liceThumbState!=st || sb->liceThumb_ver!=theme->imageVersion)
+      if(!sb->liceThumb || sb->liceThumb->getWidth()!=w || sb->liceThumb->getHeight()!=h || sb->liceThumbState!=st ||
+          sb->liceThumb_ver!=theme->imageVersion)
       {
         sb->liceThumb_ver=theme->imageVersion;
         if(!sb->liceThumb) sb->liceThumb = new LICE_SysBitmap;
@@ -1966,11 +1973,12 @@ static LRESULT NCPaint(SCROLLWND *sw, HWND hwnd, WPARAM wParam, LPARAM lParam, H
   UINT ret;
 
   wdlscrollbar_themestate *theme = GetThemeForScrollWnd(sw);
-  if (!theme->bmp && sw->whichTheme >= 0)
+  const int themeidx = sw->get_theme();
+  if (!theme->bmp && themeidx >= 0)
   {
     char tmp[512];
-    if (!sw->whichTheme) strcpy(tmp,"scrollbar");
-    else wsprintf(tmp,"scrollbar_%d",sw->whichTheme+1);
+    if (!themeidx) strcpy(tmp,"scrollbar");
+    else wsprintf(tmp,"scrollbar_%d",themeidx+1);
     LICE_IBitmap **p = (LICE_IBitmap **)GetIconThemePointer(tmp);
 
     static LICE_IBitmap *_z;
@@ -3306,7 +3314,7 @@ void CoolSB_OnColorThemeChange()
   for (x=0;x<MAX_SCROLLBAR_THEMES;x++)
   {
     s_scrollbar_theme[x].bmp = NULL;
-    s_scrollbar_theme[x].imageVersion++;
+    s_scrollbar_theme[x].imageVersion+=x+1; // ensure all themes have a unique version ID (at least for a few hundred million refreshes)
   }
 }
 
@@ -3928,10 +3936,6 @@ BOOL WINAPI CoolSB_SetThemeIndex(HWND hwnd, int idx)
     return FALSE;
 
   swnd->whichTheme = idx;
-  swnd->sbarHorz.liceBkgnd_ver += 0x800;
-  swnd->sbarVert.liceBkgnd_ver += 0x800;
-  swnd->sbarHorz.liceThumb_ver += 0x800;
-  swnd->sbarVert.liceThumb_ver += 0x800;
 
   return TRUE;
 }
