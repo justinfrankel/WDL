@@ -3314,11 +3314,11 @@ static LRESULT CALLBACK CoolSBWndProc(HWND hwnd, UINT message, WPARAM wParam, LP
 
 void CoolSB_OnColorThemeChange()
 {
-  int x;
-  for (x=0;x<MAX_SCROLLBAR_THEMES;x++)
+  static int cnt;
+  for (int x=0;x<MAX_SCROLLBAR_THEMES;x++)
   {
     s_scrollbar_theme[x].bmp = NULL;
-    s_scrollbar_theme[x].imageVersion+=x+1; // ensure all themes have a unique version ID (at least for a few hundred million refreshes)
+    s_scrollbar_theme[x].imageVersion=++cnt;
   }
 }
 
