@@ -141,6 +141,8 @@ static int gdk_options;
 #define OPTION_ALLOW_MAYBE_INACTIVE 16
 #define OPTION_FULLSCREEN_FOR_OWNER_WINDOWS 32
 #define OPTION_FULLSCREEN_DYNAMIC 64
+#define OPTION_IS_WAYLAND 0x20000000
+#define OPTIONS_READ 0x40000000
 
 static HWND s_ddrop_hwnd;
 static POINT s_ddrop_pt;
@@ -589,7 +591,8 @@ static void init_options()
 {
   if (!gdk_options)
   {
-    gdk_options = 0x40000000;
+    gdk_options = OPTIONS_READ;
+    if (getenv("WAYLAND_DISPLAY")) gdk_options |= OPTION_IS_WAYLAND;
 
     if (swell_gdk_option("gdk_owned_windows_keep_above", "auto (default is 1)",1))
       gdk_options|=OPTION_KEEP_OWNED_ABOVE;
@@ -600,7 +603,7 @@ static void init_options()
     switch (swell_gdk_option("gdk_instant_menubar_inactivation", "auto (default is 1 if on Wayland, otherwise 0)",-1))
     {
       case -1:
-        if (getenv("WAYLAND_DISPLAY") == NULL) break;
+        if (!(gdk_options & OPTION_IS_WAYLAND)) break;
         // fall through
       case 1:
         gdk_options|=OPTION_ALLOW_MAYBE_INACTIVE;
