@@ -324,7 +324,7 @@ void swell_oswindow_focus(HWND hwnd)
   if (hwnd && !swell_app_is_inactive)
   {
     bool force = false;
-    if (SWELL_focused_oswindow == hwnd->m_oswindow)
+    if (SWELL_focused_oswindow == hwnd->m_oswindow && !(gdk_options & OPTION_IS_WAYLAND))
     {
       // verify we already have focus
       GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
@@ -355,7 +355,8 @@ void swell_oswindow_focus(HWND hwnd)
       {
         // WS_CHILD is used by menus to force override redirect
         // if override redirect, gdk_window_focus() uses_NET_ACTIVE_WINDOW, but xfce4/plasma do not set focus properly
-        if (gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(hwnd->m_oswindow), gdk_atom_intern_static_string("_NET_ACTIVE_WINDOW")))
+        if (!(gdk_options & OPTION_IS_WAYLAND) &&
+            gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(hwnd->m_oswindow), gdk_atom_intern_static_string("_NET_ACTIVE_WINDOW")))
         {
           GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
           Display *dpy = gdk_x11_display_get_xdisplay(display);
