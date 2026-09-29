@@ -201,7 +201,7 @@ static void WDL_STATICFUNC_UNUSED Dlg_DrawChildWindowBorders(HWND hwndDlg, INT_P
     if (!GSC)
     {
       LRESULT res = SendMessage(hwndDlg,WM_CTLCOLORDLG, (WPARAM)__use_ps->hdc, (LPARAM)hwndDlg);
-      if (res > 65536) b=(HBRUSH)(INT_PTR)res;
+      if ((UINT_PTR)res > 65536) b=(HBRUSH)(INT_PTR)res;
     }
     if (!b)
     {
