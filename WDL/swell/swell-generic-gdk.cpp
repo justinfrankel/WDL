@@ -117,7 +117,7 @@ static void _gdk_x11_window_move_to_desktop(GdkWindow *window, guint32 desktop)
 #define  SWELL_WINDOWSKEY_GDK_MASK GDK_MOD4_MASK
 #endif
 
-static int SWELL_gdk_active;
+static int SWELL_gdk_active; // -1 fail, 1=GDK, 2=GTK+ loaded, 3=GTK+ falied
 static GdkEvent *s_cur_evt;
 static GList *s_program_icon_list;
 
@@ -406,6 +406,62 @@ void (*swell_gtk_im_context_focus_in)(GtkIMContext *);
 void (*swell_gtk_im_context_focus_out)(GtkIMContext *);
 #endif
 
+#ifdef SWELL_SUPPORT_GTK
+bool SWELL_load_gtk(void)
+{
+  if (SWELL_gdk_active != 1) return SWELL_gdk_active == 2;
+
+  if (dlopen("libgtk-3.so.0",RTLD_NOW|RTLD_GLOBAL) || dlopen("libgtk+-3.so.0",RTLD_NOW|RTLD_GLOBAL))
+  {
+    *(void **)&swell_gtk_init_check = dlsym(RTLD_DEFAULT,"gtk_init_check");
+    *(void **)&swell_gtk_main_do_event = dlsym(RTLD_DEFAULT,"gtk_main_do_event");
+    *(void **)&swell_gtk_im_context_filter_keypress = dlsym(RTLD_DEFAULT,"gtk_im_context_filter_keypress");
+    *(void **)&swell_gtk_im_context_set_cursor_location = dlsym(RTLD_DEFAULT, "gtk_im_context_set_cursor_location");
+    *(void **)&swell_gtk_im_multicontext_new = dlsym(RTLD_DEFAULT, "gtk_im_multicontext_new");
+    *(void **)&swell_gtk_im_context_set_client_window = dlsym(RTLD_DEFAULT, "gtk_im_context_set_client_window");
+    *(void **)&swell_gtk_im_context_get_preedit_string = dlsym(RTLD_DEFAULT, "gtk_im_context_get_preedit_string");
+    *(void **)&swell_gtk_im_context_focus_in = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_in");
+    *(void **)&swell_gtk_im_context_focus_out = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_out");
+  }
+
+  if (swell_gtk_init_check && swell_gtk_main_do_event)
+  {
+#ifdef _DEBUG
+    printf("swell-generic-gdk: initializing GTK+\n");
+#endif
+    int argc = 1;
+    char buf[32];
+    strcpy(buf,"blah");
+    char *argv[1] = { buf };
+    char **argvv = argv;
+
+    SWELL_gdk_active = swell_gtk_init_check(&argc,&argvv) ? 2 : 3;
+#ifdef _DEBUG
+    if (SWELL_gdk_active == 3)
+      printf("swell-generic-gdk: GTK+ init failed\n");
+#endif
+    gdk_event_handler_set(swell_gdkEventHandler,NULL,NULL);
+  }
+  else
+  {
+#ifdef _DEBUG
+    printf("swell-generic-gdk: GTK+ not found\n");
+#endif
+    swell_gtk_main_do_event = NULL;
+    swell_gtk_init_check = NULL;
+    swell_gtk_im_context_set_cursor_location = NULL;
+    swell_gtk_im_context_filter_keypress = NULL;
+    swell_gtk_im_context_set_client_window = NULL;
+    swell_gtk_im_multicontext_new = NULL;
+    swell_gtk_im_context_get_preedit_string = NULL;
+    swell_gtk_im_context_focus_in = NULL;
+    swell_gtk_im_context_focus_out = NULL;
+    SWELL_gdk_active = 3;
+  }
+  return SWELL_gdk_active == 2;
+}
+#endif
+
 void SWELL_initargs(int *argc, char ***argv) 
 {
   if (!SWELL_gdk_active) 
@@ -419,43 +475,6 @@ void SWELL_initargs(int *argc, char ***argv)
 
     if (_gdk_set_allowed_backends)
       _gdk_set_allowed_backends("x11");
-#endif
-
-#ifdef SWELL_SUPPORT_GTK
-    bool try_gtk = true;
-    for (int x = 1; x < *argc; x ++)
-      if (!strcmp((*argv)[x],"--no-gtk"))
-        try_gtk = false;
-
-    if (try_gtk)
-    {
-      if (!dlopen("libgtk-3.so.0",RTLD_NOW|RTLD_GLOBAL)) dlopen("libgtk+-3.so.0",RTLD_NOW|RTLD_GLOBAL);
-      *(void **)&swell_gtk_init_check = dlsym(RTLD_DEFAULT,"gtk_init_check");
-      *(void **)&swell_gtk_main_do_event = dlsym(RTLD_DEFAULT,"gtk_main_do_event");
-      *(void **)&swell_gtk_im_context_filter_keypress = dlsym(RTLD_DEFAULT,"gtk_im_context_filter_keypress");
-      *(void **)&swell_gtk_im_context_set_cursor_location = dlsym(RTLD_DEFAULT, "gtk_im_context_set_cursor_location");
-      *(void **)&swell_gtk_im_multicontext_new = dlsym(RTLD_DEFAULT, "gtk_im_multicontext_new");
-      *(void **)&swell_gtk_im_context_set_client_window = dlsym(RTLD_DEFAULT, "gtk_im_context_set_client_window");
-      *(void **)&swell_gtk_im_context_get_preedit_string = dlsym(RTLD_DEFAULT, "gtk_im_context_get_preedit_string");
-      *(void **)&swell_gtk_im_context_focus_in = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_in");
-      *(void **)&swell_gtk_im_context_focus_out = dlsym(RTLD_DEFAULT, "gtk_im_context_focus_out");
-    }
-    if (swell_gtk_init_check && swell_gtk_main_do_event)
-    {
-      SWELL_gdk_active = swell_gtk_init_check(argc,argv) ? 1 : -1;
-    }
-    else
-    {
-      swell_gtk_main_do_event = NULL;
-      swell_gtk_init_check = NULL;
-      swell_gtk_im_context_set_cursor_location = NULL;
-      swell_gtk_im_context_filter_keypress = NULL;
-      swell_gtk_im_context_set_client_window = NULL;
-      swell_gtk_im_multicontext_new = NULL;
-      swell_gtk_im_context_get_preedit_string = NULL;
-      swell_gtk_im_context_focus_in = NULL;
-      swell_gtk_im_context_focus_out = NULL;
-    }
 #endif
 
     if (!SWELL_gdk_active)

@@ -1216,6 +1216,11 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
   }
 #endif
 #ifdef SWELL_SUPPORT_GTK
+  else if (!strcmp(key,"LOAD_GTK"))
+  {
+    bool SWELL_load_gtk(void);
+    return SWELL_load_gtk() ? (void*)"OK": NULL;
+  }
   else if (!strcmp(key,"IME_ENABLED"))
   {
     extern bool swell_ime_enabled;
