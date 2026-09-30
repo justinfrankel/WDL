@@ -131,9 +131,7 @@ ifndef NOGDK
       endif
     else
       LINKEXTRA += -lX11 -lXi
-      CFLAGS += -DSWELL_PRELOAD="libgtk-3.so.0"
-      CFLAGS += -DSWELL_PRELOAD2="libgtk+-3.so.0"
-      CFLAGS += -DSWELL_PRELOAD3="libgdk-3.so.0"
+      CFLAGS += -DSWELL_PRELOAD="libgdk-3.so.0"
     endif
   endif
   CFLAGS += -DSWELL_LICE_GDI

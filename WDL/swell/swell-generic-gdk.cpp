@@ -32,12 +32,6 @@
 #define STR2(x) STR(x)
 extern "C" {
   char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY[] = STR2(SWELL_PRELOAD);
-  #ifdef SWELL_PRELOAD2
-  char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY2[] = STR2(SWELL_PRELOAD2);
-  #endif
-  #ifdef SWELL_PRELOAD3
-  char __attribute__ ((visibility ("default"))) SWELL_WANT_LOAD_LIBRARY3[] = STR2(SWELL_PRELOAD3);
-  #endif
 };
 #undef STR
 #undef STR2
@@ -435,6 +429,7 @@ void SWELL_initargs(int *argc, char ***argv)
 
     if (try_gtk)
     {
+      if (!dlopen("libgtk-3.so.0",RTLD_NOW|RTLD_GLOBAL)) dlopen("libgtk+-3.so.0",RTLD_NOW|RTLD_GLOBAL);
       *(void **)&swell_gtk_init_check = dlsym(RTLD_DEFAULT,"gtk_init_check");
       *(void **)&swell_gtk_main_do_event = dlsym(RTLD_DEFAULT,"gtk_main_do_event");
       *(void **)&swell_gtk_im_context_filter_keypress = dlsym(RTLD_DEFAULT,"gtk_im_context_filter_keypress");
