@@ -426,9 +426,6 @@ bool SWELL_load_gtk(void)
 
   if (swell_gtk_init_check && swell_gtk_main_do_event)
   {
-#ifdef _DEBUG
-    printf("swell-generic-gdk: initializing GTK+\n");
-#endif
     int argc = 1;
     char buf[32];
     strcpy(buf,"blah");
@@ -436,17 +433,15 @@ bool SWELL_load_gtk(void)
     char **argvv = argv;
 
     SWELL_gdk_active = swell_gtk_init_check(&argc,&argvv) ? 2 : 3;
-#ifdef _DEBUG
     if (SWELL_gdk_active == 3)
-      printf("swell-generic-gdk: GTK+ init failed\n");
-#endif
+      printf("swell-generic-gdk: GTK+ requested but initialization failed.\n");
+    else
+      printf("swell-generic-gdk: initialized GTK+ on request.\n");
     gdk_event_handler_set(swell_gdkEventHandler,NULL,NULL);
   }
   else
   {
-#ifdef _DEBUG
-    printf("swell-generic-gdk: GTK+ not found\n");
-#endif
+    printf("swell-generic-gdk: GTK+ requested but not found\n");
     swell_gtk_main_do_event = NULL;
     swell_gtk_init_check = NULL;
     swell_gtk_im_context_set_cursor_location = NULL;
