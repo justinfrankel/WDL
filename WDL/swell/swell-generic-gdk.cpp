@@ -432,6 +432,10 @@ bool SWELL_load_gtk(void)
     char *argv[1] = { buf };
     char **argvv = argv;
 
+    void (*disable_setlocale)(void);
+    *(void **)&disable_setlocale = dlsym(RTLD_DEFAULT, "gtk_disable_setlocale");
+    if (disable_setlocale) disable_setlocale();
+
     SWELL_gdk_active = swell_gtk_init_check(&argc,&argvv) ? 2 : 3;
     if (SWELL_gdk_active == 3)
       printf("swell-generic-gdk: GTK+ requested but initialization failed.\n");
