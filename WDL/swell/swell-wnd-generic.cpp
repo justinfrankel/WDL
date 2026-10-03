@@ -2839,6 +2839,7 @@ forceMouseMove:
           RECT orig_r = r;
           WDL_FastString *title = &hwnd->m_title;
           if (hwnd->m_style & ES_PASSWORD) passwordify(&title);
+          WDL_FastString * const title_orig = title;
 
           bool is_secpass = false;
 again:
@@ -2856,9 +2857,9 @@ again:
           r.left+=2 - es->scroll_x; r.right-=2;
 
           const bool do_cursor = es->cursor_state!=0;
-          int cursor_pos = focused ?  utf8fs_charpos_to_bytepos(title,es->cursor_pos) : -1;
-          int sel1 = es->sel1>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel1) : -1;
-          int sel2 = es->sel2>=0 && focused ? utf8fs_charpos_to_bytepos(title,es->sel2) : -1;
+          int cursor_pos = focused ?  utf8fs_charpos_to_bytepos(title_orig,es->cursor_pos) : -1;
+          int sel1 = es->sel1>=0 && focused ? utf8fs_charpos_to_bytepos(title_orig,es->sel1) : -1;
+          int sel2 = es->sel2>=0 && focused ? utf8fs_charpos_to_bytepos(title_orig,es->sel2) : -1;
 
           const bool multiline = (hwnd->m_style & ES_MULTILINE) != 0;
 
