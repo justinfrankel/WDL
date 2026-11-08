@@ -2055,15 +2055,7 @@ void SWELL_RunEvents()
 #endif
 
     GMainContext *ctx=g_main_context_default();
-    while (g_main_context_iteration(ctx,FALSE))
-    {
-      GdkEvent *evt;
-      while (gdk_events_pending() && (evt = gdk_event_get()))
-      {
-        swell_gdkEventHandler(evt,(gpointer)1);
-        gdk_event_free(evt);
-      }
-    }
+    while (g_main_context_iteration(ctx,FALSE)) {}
 
     DWORD dt;
     if (s_ddrop_forward_last_has_dropped &&
@@ -2372,28 +2364,7 @@ static HANDLE req_clipboard(GdkAtom type)
     DWORD startt = GetTickCount();
     for (;;)
     {
-      while (!s_clipboard_getstate && g_main_context_iteration(ctx,FALSE))
-      {
-        GdkEvent *evt;
-        while (!s_clipboard_getstate && gdk_events_pending() && (evt = gdk_event_get()))
-        {
-          switch (evt->type)
-          {
-            case GDK_SELECTION_NOTIFY:
-            case GDK_SELECTION_REQUEST:
-            case GDK_EXPOSE:
-            case GDK_CONFIGURE:
-            case GDK_WINDOW_STATE:
-            case GDK_GRAB_BROKEN:
-              swell_gdkEventHandler(evt,(gpointer)1);
-            break;
-            default:
-              // not ideal to drop events, but hm
-            break;
-          }
-          gdk_event_free(evt);
-        }
-      }
+      while (!s_clipboard_getstate && GetTickCount()-startt < 500 && g_main_context_iteration(ctx,FALSE)) {}
 
       if (s_clipboard_getstate) 
       {
@@ -3075,6 +3046,7 @@ static bool OnDragEventDelegate(GdkEvent *evt)
   // GDK_DROP_START
 
   HWND hwnd = swell_oswindow_to_hwnd(((GdkEventAny*)evt)->window);
+  if (!hwnd) return false;
   GdkEventDND *e = (GdkEventDND *)evt;
 
   switch (evt->type)
