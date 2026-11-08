@@ -641,7 +641,8 @@ static void init_options()
   if (!gdk_options)
   {
     gdk_options = OPTIONS_READ;
-    if (getenv("WAYLAND_DISPLAY")) gdk_options |= OPTION_IS_WAYLAND;
+    const char *wayland_display = getenv("WAYLAND_DISPLAY");
+    if (wayland_display && *wayland_display) gdk_options |= OPTION_IS_WAYLAND;
 
     if (swell_gdk_option("gdk_owned_windows_keep_above", "auto (default is 1)",1))
       gdk_options|=OPTION_KEEP_OWNED_ABOVE;
