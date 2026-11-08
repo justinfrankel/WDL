@@ -1727,6 +1727,7 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
   if (hwnd->m_invalidated) forceref=true;
 
   int calced_w = -1, calced_h = -1;
+  bool okToClearChild=true;
   if (forceref || hwnd->m_child_invalidated)
   {
     swell_gdpLocalContext ctx;
@@ -1752,11 +1753,16 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
       NCCALCSIZE_PARAMS p;
       memset(&p,0,sizeof(p));
       p.rgrc[0]=r2;
-      hwnd->m_wndproc(hwnd,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      SendMessage(hwnd,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
       RECT r = p.rgrc[0];
       calced_w = r.right-r.left;
       calced_h = r.bottom-r.top;
-      if (forceref) hwnd->m_wndproc(hwnd,WM_NCPAINT,(WPARAM)1,0);
+      if (forceref) SendMessage(hwnd,WM_NCPAINT,(WPARAM)1,0);
+      if (hwnd->m_hashaddestroy)
+      {
+        hwnd->m_paintctx = oldpaintctx;
+        goto done;
+      }
 
       // dx,dy is offset from the window's nonclient root
       const int dx = r.left-r2.left,dy=r.top-r2.top;
@@ -1798,17 +1804,17 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
       if (hwnd->m_wndproc && ctx.clipr.right > ctx.clipr.left && ctx.clipr.bottom > ctx.clipr.top) 
       {
         ctx.ctx.curfont = hwnd->m_font;
-        hwnd->m_wndproc(hwnd,WM_PAINT,(WPARAM)&ctx,0);
+        SendMessage(hwnd,WM_PAINT,(WPARAM)&ctx,0);
       }
 
       hwnd->m_paintctx = oldpaintctx;
+      if (hwnd->m_hashaddestroy) goto done;
    
       // it might be good to blit here on some OSes, rather than from the top level caller...
       hwnd->m_invalidated=false;
     }
   }
 
-  bool okToClearChild=true;
   if (forceref || hwnd->m_child_invalidated)
   {
     HWND h = hwnd->m_children;
@@ -1849,16 +1855,24 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
         {
           LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
           if (subbm.getWidth()>0 && subbm.getHeight()>0)
+          {
+            h->Retain();
             SWELL_internalLICEpaint(h,&subbm,-extra_xo-xp,-extra_yo-yp,forceref);
+            const bool destroyed = h->m_hashaddestroy || hwnd->m_hashaddestroy;
+            h->Release();
+            if (destroyed) goto done;
+          }
         }
       }
       h = h->m_next;
     }
   }
   if (okToClearChild) hwnd->m_child_invalidated=false;
+done:
 #ifdef _DEBUG
   g_swell_in_paint--;
 #endif
+  return;
 }
 
 HBITMAP CreateBitmap(int width, int height, int numplanes, int bitsperpixel, unsigned char* bits)

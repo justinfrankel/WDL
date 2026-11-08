@@ -1181,7 +1181,11 @@ static void OnExposeEvent(GdkEventExpose *exp)
   if (tmpbm.getWidth()>0 && tmpbm.getHeight()>0) 
   {
     void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int bmout_ypos, bool forceref);
+    hwnd->Retain();
     SWELL_internalLICEpaint(hwnd, &tmpbm, r.left, r.top, forceref);
+    const bool destroyed = hwnd->m_hashaddestroy != 0;
+    hwnd->Release();
+    if (destroyed) return;
 
     GdkRectangle rrr={r.left,r.top,r.right-r.left,r.bottom-r.top};
     gdk_window_begin_paint_rect(exp->window, &rrr);

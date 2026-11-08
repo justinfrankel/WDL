@@ -7240,7 +7240,13 @@ BOOL InvalidateRect(HWND hwnd, const RECT *r, int eraseBk)
     NCCALCSIZE_PARAMS tr;
     memset(&tr,0,sizeof(tr));
     tr.rgrc[0] = ncrect;
-    if (h->m_wndproc) h->m_wndproc(h,WM_NCCALCSIZE,0,(LPARAM)&tr);
+    hwnd->Retain();
+    h->Retain();
+    SendMessage(h,WM_NCCALCSIZE,0,(LPARAM)&tr);
+    const bool destroyed = h->m_hashaddestroy || hwnd->m_hashaddestroy;
+    h->Release();
+    hwnd->Release();
+    if (destroyed) return FALSE;
 
     WinOffsetRect(&rect,tr.rgrc[0].left, tr.rgrc[0].top);
 
