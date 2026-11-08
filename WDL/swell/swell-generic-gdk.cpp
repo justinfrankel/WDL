@@ -1377,7 +1377,7 @@ static guint swell_gdkComposeKeys(GdkEventKey *k) // return 0 if not in composit
     lw = k->window;
   }
 
-  if (!IS_DEAD_KEY(k->keyval) && !state_pos) return 0;
+  if (!IS_DEAD_KEY(k->keyval) && k->keyval != DEF_GKY(Multi_key) && !state_pos) return 0;
 
   static const guint16 mods[] = {
     DEF_GKY(Overlay1_Enable),
@@ -1435,6 +1435,17 @@ static void OnKeyEvent(GdkEventKey *k)
 {
   HWND hwnd = swell_oswindow_to_hwnd(k->window);
   if (!hwnd) return;
+  HWND foc = GetFocusIncludeMenus();
+  if (foc && IsChild(hwnd,foc)) hwnd=foc;
+  else if (foc && foc->m_oswindow && !(foc->m_style&WS_CAPTION)) hwnd=foc; // for menus, event sent to other window due to gdk_window_set_override_redirect()
+
+#ifdef SWELL_SUPPORT_GTK
+  if (hwnd == swell_ime_target &&
+      swell_ime_context &&
+      swell_gtk_im_context_filter_keypress &&
+      swell_gtk_im_context_filter_keypress(swell_ime_context, k))
+        return;
+#endif
 
   int modifiers = 0;
   if (k->state&GDK_CONTROL_MASK) modifiers|=FCONTROL;
@@ -1524,23 +1535,12 @@ static void OnKeyEvent(GdkEventKey *k)
     }
   }
 
-  HWND foc = GetFocusIncludeMenus();
-  if (foc && IsChild(hwnd,foc)) hwnd=foc;
-  else if (foc && foc->m_oswindow && !(foc->m_style&WS_CAPTION)) hwnd=foc; // for menus, event sent to other window due to gdk_window_set_override_redirect()
-
   if (is_extended) modifiers |= 1<<24;
 
   MSG msg = { hwnd, msgtype, kv, modifiers, };
   INT_PTR extra_flags = 0;
   if (DialogBoxIsActive()) extra_flags |= 1;
 
-#ifdef SWELL_SUPPORT_GTK
-  if (hwnd == swell_ime_target &&
-      swell_ime_context &&
-      swell_gtk_im_context_filter_keypress &&
-      swell_gtk_im_context_filter_keypress(swell_ime_context, k))
-        return;
-#endif
   if (SWELLAppMain(SWELLAPP_PROCESSMESSAGE,(INT_PTR)&msg,extra_flags)<=0)
     SendMessage(hwnd, msg.message, kv, modifiers);
 }
