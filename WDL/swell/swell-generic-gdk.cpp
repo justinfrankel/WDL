@@ -971,13 +971,6 @@ static guint swell_gdkConvertKey(guint key, bool *extended)
 
 LRESULT SWELL_SendMouseMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, int x_root, int y_root);
 
-static int hex_parse(char c)
-{
-  if (c >= '0' && c <= '9') return c-'0';
-  if (c >= 'A' && c <= 'F') return 10+c-'A';
-  if (c >= 'a' && c <= 'f') return 10+c-'a';
-  return -1;
-}
 
 static GdkAtom utf8atom() 
 {
@@ -1686,52 +1679,35 @@ static void OnButtonEvent(GdkEventButton *b)
 
 static HANDLE urilistToDropFiles(const POINT *pt, const guchar *gptr, gint sz)
 {
-  HANDLE gobj=GlobalAlloc(0,sz+sizeof(DROPFILES));
-  if (!gobj) return NULL;
-
-  DROPFILES *df=(DROPFILES*)gobj;
-  df->pFiles = sizeof(DROPFILES);
-  if (pt) df->pt = *pt;
-  else df->pt.x = df->pt.y = 0;
-
-  df->fNC=FALSE;
-  df->fWide=FALSE;
-  guchar *pout = (guchar *)(df+1);
-  const guchar *rd = gptr;
-  const guchar *rd_end = rd + sz;
-  for (;;)
+  if (!gptr || sz <= 0) return NULL;
+  gchar *text = g_strndup((const gchar*)gptr, sz);
+  gchar **uris = g_uri_list_extract_uris(text);
+  g_free(text);
+  GString *files = g_string_new(NULL);
+  for (gchar **uri = uris; *uri; ++uri)
   {
-    while (rd < rd_end && *rd && isspace_safe(*rd)) rd++;
-    if (rd >= rd_end) break;
-
-    if (rd+7 < rd_end && !strnicmp((const char *)rd,"file://",7))
-    {
-      rd += 7;
-      int c=0;
-      while (rd < rd_end && *rd && !isspace_safe(*rd))
-      {
-        int v1,v2;
-        if (*rd == '%' && rd+2 < rd_end && (v1=hex_parse(rd[1]))>=0 && (v2=hex_parse(rd[2]))>=0)
-        {
-          *pout++ = (v1<<4) | v2;
-          rd+=3;
-        }
-        else
-        {
-          *pout++ = *rd++;
-        }
-        c++;
-      }
-      if (c) *pout++=0;
-    }
-    else
-    {
-      while (rd < rd_end && *rd && !isspace_safe(*rd)) rd++;
-    }
+    gchar *hostname = NULL;
+    gchar *path = g_filename_from_uri(*uri, &hostname, NULL);
+    if (path && (!hostname || !g_ascii_strcasecmp(hostname, "localhost") ||
+                 !g_ascii_strcasecmp(hostname, g_get_host_name())))
+      g_string_append_len(files, path, strlen(path) + 1);
+    g_free(path);
+    g_free(hostname);
   }
-  *pout++=0;
-  *pout++=0;
+  g_strfreev(uris);
 
+  HANDLE gobj = NULL;
+  if (files->len && files->len <= INT_MAX - sizeof(DROPFILES) - 1)
+    gobj = GlobalAlloc(0, sizeof(DROPFILES) + files->len + 1);
+  if (gobj)
+  {
+    DROPFILES *df = (DROPFILES*)gobj;
+    memset(df, 0, sizeof(*df));
+    df->pFiles = sizeof(DROPFILES);
+    if (pt) df->pt = *pt;
+    memcpy(df + 1, files->str, files->len + 1);
+  }
+  g_string_free(files, TRUE);
   return gobj;
 }
 
