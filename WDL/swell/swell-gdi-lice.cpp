@@ -1395,7 +1395,7 @@ HICON LoadNamedImage(const char *name, bool alphaFromMask)
         ret->wid=1;
         ret->typedata = bm;
       }
-      else delete wr;
+      else delete bm;
     }
     g_object_unref(pb);
     return ret;
