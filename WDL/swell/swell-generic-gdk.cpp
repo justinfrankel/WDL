@@ -3655,6 +3655,7 @@ static LRESULT WINAPI dropSourceWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
 void SWELL_InitiateDragDrop(HWND hwnd, RECT* srcrect, const char* srcfn, void (*callback)(const char* dropfn))
 {
+  if (hwnd) hwnd->Retain();
   const bool is_osw_cursor = s_last_setcursor_oswnd && swell_oswindow_from_hwnd(hwnd) == s_last_setcursor_oswnd;
   swell_dragsrc_fn = srcfn;
   dropSourceInfo info;
@@ -3666,7 +3667,7 @@ void SWELL_InitiateDragDrop(HWND hwnd, RECT* srcrect, const char* srcfn, void (*
   swell_dragsrc_hwnd=h;
   h->m_private_data = (INT_PTR) &info;
   dropSourceWndProc(h,WM_CREATE,0,0);
-  while (GetCapture()==h)
+  while (GetCapture()==h && (!hwnd || !hwnd->m_hashaddestroy))
   {
     SWELL_RunMessageLoop();
     Sleep(10);
@@ -3676,18 +3677,20 @@ void SWELL_InitiateDragDrop(HWND hwnd, RECT* srcrect, const char* srcfn, void (*
   swell_dragsrc_hwnd=NULL;
   DestroyWindow(h);
 
-  if (is_osw_cursor && hwnd && GetFocus() != hwnd)
+  if (is_osw_cursor && hwnd && !hwnd->m_hashaddestroy && GetFocus() != hwnd)
   {
     SWELL_OSWINDOW osw = swell_oswindow_from_hwnd(hwnd);
-    gdk_window_set_cursor(osw,NULL);
+    if (osw) gdk_window_set_cursor(osw,NULL);
   }
   swell_dragsrc_fn = NULL;
+  if (hwnd) hwnd->Release();
 }
 
 // owner owns srclist, make copies here etc
 void SWELL_InitiateDragDropOfFileList(HWND hwnd, RECT *srcrect, const char **srclist, int srccount, HICON icon)
 {
   swell_dragsrc_fn = srccount>0 ? srclist[0] : NULL;
+  if (hwnd) hwnd->Retain();
   const bool is_osw_cursor = s_last_setcursor_oswnd && swell_oswindow_from_hwnd(hwnd) == s_last_setcursor_oswnd;
   dropSourceInfo info;
   info.srclist = srclist;
@@ -3698,7 +3701,7 @@ void SWELL_InitiateDragDropOfFileList(HWND hwnd, RECT *srcrect, const char **src
   swell_dragsrc_hwnd=h;
   h->m_private_data = (INT_PTR) &info;
   dropSourceWndProc(h,WM_CREATE,0,0);
-  while (GetCapture()==h)
+  while (GetCapture()==h && (!hwnd || !hwnd->m_hashaddestroy))
   {
     SWELL_RunMessageLoop();
     Sleep(10);
@@ -3708,12 +3711,13 @@ void SWELL_InitiateDragDropOfFileList(HWND hwnd, RECT *srcrect, const char **src
   swell_dragsrc_hwnd=NULL;
   DestroyWindow(h);
 
-  if (is_osw_cursor && hwnd && GetFocus() != hwnd)
+  if (is_osw_cursor && hwnd && !hwnd->m_hashaddestroy && GetFocus() != hwnd)
   {
     SWELL_OSWINDOW osw = swell_oswindow_from_hwnd(hwnd);
-    gdk_window_set_cursor(osw,NULL);
+    if (osw) gdk_window_set_cursor(osw,NULL);
   }
   swell_dragsrc_fn = NULL;
+  if (hwnd) hwnd->Release();
 }
 
 void SWELL_FinishDragDrop() { }
