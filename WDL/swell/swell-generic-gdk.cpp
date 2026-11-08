@@ -3035,7 +3035,7 @@ static Window hit_test_bridged_xw(HWND hwnd, int xpos, int ypos, Window *contain
 
         XWindowAttributes xwa;
         memset(&xwa,0,sizeof(xwa));
-        if (XGetWindowAttributes(dpy, list[i], &xwa) && lx >= xwa.x && ly >= xwa.y && lx < xwa.x+xwa.width && ly < xwa.y+xwa.height)
+        if (XGetWindowAttributes(dpy, list[i], &xwa) && lx >= 0 && ly >= 0 && lx < xwa.width && ly < xwa.height)
         {
           // make sure this window can do XdndAware
           Atom type;
