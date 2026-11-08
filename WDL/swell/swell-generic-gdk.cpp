@@ -4040,7 +4040,11 @@ void SWELL_SetViewGL(HWND h, char wantGL)
     {
       static GLint att[] = { GLX_RGBA, None };
       XVisualInfo* vi = glXChooseVisual(bs->native_disp, 0, att);
-      bs->gl_ctx = glXCreateContext(bs->native_disp,vi,NULL,1);
+      if (vi)
+      {
+        bs->gl_ctx = glXCreateContext(bs->native_disp,vi,NULL,1);
+        XFree(vi);
+      }
     }
     else if (!wantGL && bs->gl_ctx)
     {
@@ -4071,7 +4075,7 @@ bool SWELL_SetGLContextToView(HWND h)
       bridgeState *bs = (bridgeState*)h->m_private_data;
       if (bs->gl_ctx)
       {
-        glXMakeCurrent(bs->native_disp, bs->native_w, bs->gl_ctx);
+        if (!glXMakeCurrent(bs->native_disp, bs->native_w, bs->gl_ctx)) return false;
         s_last_gl_ctx = bs;
         return true;
       }
