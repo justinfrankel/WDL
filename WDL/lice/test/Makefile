@@ -29,7 +29,7 @@ else
                swell-gdi-generic.o swell-ini.o swell-generic-gdk.o \
                swell-appstub-generic.o swell-miscdlg-generic.o
 
-  LFLAGS += -ldl
+  LFLAGS += -ldl -lGL
 
   vpath %.cpp $(WDL_PATH)/swell
 endif

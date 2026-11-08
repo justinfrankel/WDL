@@ -62,7 +62,7 @@ ifndef NOGDK
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
     LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
-    LINKEXTRA += -lX11 -lXi
+    LINKEXTRA += -lX11 -lXi -lGL
   else
     ifdef SWELL_SUPPORT_GTK
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gtk+-3.0) -DSWELL_SUPPORT_GTK
