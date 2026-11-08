@@ -399,20 +399,18 @@ LRESULT SendMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     SWELL_MessageQueue_Clear(hwnd);
     // send WM_DESTROY to all children
-    HWND tmp=hwnd->m_children;
-    while (tmp)
+    for (int owned = 0; owned < 2; ++owned)
     {
-      HWND old = tmp;
-      tmp=tmp->m_next;
-      SendMessage(old,WM_DESTROY,0,0);
-    }
-    {
-      tmp=hwnd->m_owned_list;
-      while (tmp)
+      WDL_PtrList<HWND__> windows;
+      for (HWND h = owned ? hwnd->m_owned_list : hwnd->m_children; h;
+           h = owned ? h->m_owned_next : h->m_next)
+        if (windows.Add(h)) h->Retain();
+      for (int i = 0; i < windows.GetSize(); ++i)
       {
-        HWND old = tmp;
-        tmp=tmp->m_owned_next;
-        if (!IsModalDialogBox(old)) SendMessage(old,WM_DESTROY,0,0);
+        HWND h = windows.Get(i);
+        if (owned ? h->m_owner == hwnd && !IsModalDialogBox(h) : h->m_parent == hwnd)
+          SendMessage(h,WM_DESTROY,0,0);
+        h->Release();
       }
     }
     if (SWELL_focused_oswindow && SWELL_focused_oswindow == hwnd->m_oswindow)
