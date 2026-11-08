@@ -404,14 +404,62 @@ int menuBarNavigate(int dir); // -1 if no menu bar active, 0 if did nothing, 1 i
 HWND GetFocusIncludeMenus(void);
 static DWORD swell_menu_ignore_mousemove_from;
 
+static int submenu_text_height(HDC hdc)
+{
+  RECT r={0,};
+  return DrawText(hdc,"M",1,&r,DT_CALCRECT|DT_SINGLELINE);
+}
+
+static int submenu_item_height(const MENUITEMINFO *inf, int text_height)
+{
+  int ht;
+  if (MenuIsStringType(inf)) ht = text_height;
+  else if (inf->fType == MFT_BITMAP)
+  {
+    BITMAP bm={16,16};
+    if (inf->dwTypeData) GetObject((HBITMAP)inf->dwTypeData,sizeof(bm),&bm);
+    ht = bm.bmHeight;
+  }
+  else return SWELL_UI_SCALE(8);
+
+  BITMAP bm={0,};
+  if (inf->hbmpItem) GetObject(inf->hbmpItem,sizeof(bm),&bm);
+  return wdl_max(ht,bm.bmHeight) + SWELL_UI_SCALE(4);
+}
+
+static void submenu_invalidate_selection(HWND hwnd, int oldsel)
+{
+  HMENU__ *menu = (HMENU__*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
+  if (oldsel == menu->sel_vis) return;
+
+  HDC hdc = GetDC(hwnd);
+  const int text_height = submenu_text_height(hdc);
+  ReleaseDC(hwnd,hdc);
+  RECT r;
+  GetClientRect(hwnd,&r);
+  const int bottom = r.bottom;
+  r.bottom = SWELL_UI_SCALE(4);
+  bool invalidated = false;
+  for (int x=wdl_max((int)hwnd->m_extra[0],0); x < menu->items.GetSize() && r.bottom < bottom; x++)
+  {
+    r.top = r.bottom;
+    r.bottom += submenu_item_height(menu->items.Get(x),text_height);
+    if (x == oldsel || x == menu->sel_vis)
+    {
+      InvalidateRect(hwnd,&r,FALSE);
+      invalidated = true;
+    }
+  }
+  if (!invalidated) InvalidateRect(hwnd,NULL,FALSE);
+}
+
 static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-  static int lcol, rcol, mcol, top_margin, separator_ht, text_ht_pad, bitmap_ht_pad, scroll_margin, item_bm_pad;
+  static int lcol, rcol, mcol, top_margin, bitmap_ht_pad, scroll_margin, item_bm_pad;
   if (!lcol)
   {
     lcol=SWELL_UI_SCALE(30); rcol=SWELL_UI_SCALE(18); mcol=SWELL_UI_SCALE(10);
-    top_margin=SWELL_UI_SCALE(4); separator_ht=SWELL_UI_SCALE(8); 
-    text_ht_pad=SWELL_UI_SCALE(4); bitmap_ht_pad=SWELL_UI_SCALE(4);
+    top_margin=SWELL_UI_SCALE(4); bitmap_ht_pad=SWELL_UI_SCALE(4);
     scroll_margin=SWELL_UI_SCALE(10);
     item_bm_pad = SWELL_UI_SCALE(4);
   }
@@ -438,12 +486,14 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
       {
         HDC hdc = GetDC(hwnd);
+        const int text_height = submenu_text_height(hdc);
         HMENU__ *menu = (HMENU__*)lParam;
         int ht = 0, wid=SWELL_UI_SCALE(100),wid2=0;
         int x;
         for (x=0; x < menu->items.GetSize(); x++)
         {
           MENUITEMINFO *inf = menu->items.Get(x);
+          ht += submenu_item_height(inf,text_height);
           BITMAP bm2={0,};
           if (inf->hbmpItem)
             GetObject(inf->hbmpItem,sizeof(bm2),&bm2);
@@ -455,11 +505,9 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             if (!str || !*str) str="XXXXX";
             const char *pt2 = strstr(str,"\t");
             DrawText(hdc,str,pt2 ? (int)(pt2-str) : -1,&r,DT_CALCRECT|DT_SINGLELINE);
-            if (r.bottom < bm2.bmHeight) r.bottom = bm2.bmHeight;
             if (bm2.bmWidth) r.right += bm2.bmWidth + item_bm_pad;
 
             if (r.right > wid) wid=r.right;
-            ht += r.bottom + text_ht_pad;
 
             if (pt2)
             { 
@@ -472,16 +520,8 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           {
             BITMAP bm={16,16};
             if (inf->dwTypeData) GetObject((HBITMAP)inf->dwTypeData,sizeof(bm),&bm);
-            if (bm.bmHeight < bm2.bmHeight) bm.bmHeight = bm2.bmHeight;
             if (bm2.bmWidth) bm.bmWidth += bm2.bmWidth + item_bm_pad;
             if (bm.bmWidth > wid) wid = bm.bmWidth;
-
-            ht += bm.bmHeight + bitmap_ht_pad;
-          }
-          else
-          {
-            // treat as separator, ignore bm2
-            ht += separator_ht;
           }
         }
         wid+=lcol+rcol + (wid2?wid2+mcol:0);
@@ -555,6 +595,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           SetBkMode(ps.hdc,TRANSPARENT);
           HMENU__ *menu = (HMENU__*)GetWindowLongPtr(hwnd,GWLP_USERDATA);
           int ypos = top_margin;
+          const int text_height = submenu_text_height(ps.hdc);
 
           int extra_left = 0;
           bool want_autoscroll_down = false;
@@ -571,35 +612,25 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             if (WDL_NOT_NORMALLY(!inf)) break;
 
             RECT r={lcol,ypos,cr.right, };
+            ypos += submenu_item_height(inf,text_height);
+            r.bottom = ypos;
+            if ((r.top+ypos)/2 > cr.bottom) extra_left = ni-x;
+            if (ypos > cr.bottom && x == menu->sel_vis)
+            {
+              want_autoscroll_down = true;
+              extra_left = ni-x;
+            }
+            if (r.bottom <= ps.rcPaint.top || r.top >= ps.rcPaint.bottom) continue;
+
             bool dis = !!(inf->fState & MF_GRAYED);
             BITMAP bm={16,16}, bm2={0,};
             if (inf->hbmpItem)
               GetObject(inf->hbmpItem,sizeof(bm2),&bm2);
-
-            if (MenuIsStringType(inf))
-            {
-              const char *str = inf->dwTypeData;
-              if (!str || !*str) str="XXXXX";
-              RECT mr={0,};
-              DrawText(ps.hdc,str,-1,&mr,DT_CALCRECT|DT_SINGLELINE);
-
-              ypos += wdl_max(mr.bottom,bm2.bmHeight) + text_ht_pad;
-              r.bottom = ypos;
-            }
-            else if (inf->fType == MFT_BITMAP)
+            if (inf->fType == MFT_BITMAP)
             {
               if (inf->dwTypeData) GetObject((HBITMAP)inf->dwTypeData,sizeof(bm),&bm);
-
-              ypos += wdl_max(bm.bmHeight,bm2.bmHeight) + bitmap_ht_pad;
-              r.bottom = ypos;
-
             }
-            else
-            {
-              dis=true;
-              ypos += separator_ht;
-              r.bottom = ypos;
-            }
+            else if (!MenuIsStringType(inf)) dis=true;
 
             if (x == menu->sel_vis && !dis)
             {
@@ -726,15 +757,6 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
               SelectObject(ps.hdc,oldBrush);
               DeleteObject(tpen);
               DeleteObject(tbr);
-            }
-            if ((r.top+ypos)/2 > cr.bottom)
-            {
-              extra_left = ni-x;
-            }
-            if (ypos > cr.bottom && x == menu->sel_vis)
-            {
-              want_autoscroll_down = true;
-              extra_left = ni-x;
             }
           }
           hwnd->m_extra[1] = want_autoscroll_down || x <= menu->sel_vis;
@@ -1079,6 +1101,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
         int ht = top_margin;
         HDC hdc=GetDC(hwnd);
+        const int text_height = submenu_text_height(hdc);
         if (wParam > 1) which = -1;
         else item_ypos = 0;
         for (int x=wdl_max(hwnd->m_extra[0],0); x < (menu->items.GetSize()); x++)
@@ -1086,29 +1109,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           if (wParam == 1 && which == x) { item_ypos = ht; break; }
           MENUITEMINFO *inf = menu->items.Get(x);
           int lastht = ht;
-          BITMAP bm2={0,};
-          if (inf->hbmpItem)
-            GetObject(inf->hbmpItem,sizeof(bm2),&bm2);
-
-          if (MenuIsStringType(inf))
-          {
-            RECT r={0,};
-            const char *str = inf->dwTypeData;
-            if (!str || !*str) str="XXXXX";
-            const char *pt2 = strstr(str,"\t");
-            DrawText(hdc,str,pt2 ? (int)(pt2-str) : -1,&r,DT_CALCRECT|DT_SINGLELINE);
-            ht += wdl_max(r.bottom,bm2.bmHeight) + text_ht_pad;
-          }
-          else if (inf->fType == MFT_BITMAP)
-          {
-            BITMAP bm={16,16};
-            if (inf->dwTypeData) GetObject((HBITMAP)inf->dwTypeData,sizeof(bm),&bm);
-            ht += wdl_max(bm.bmHeight,bm2.bmHeight) + bitmap_ht_pad;
-          }
-          else
-          {
-            ht += separator_ht;
-          }
+          ht += submenu_item_height(inf,text_height);
           if (wParam > 1 && item_ypos < ht) 
           { 
             item_ypos = lastht; 
@@ -1225,8 +1226,9 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                   s = m2->items.Get(x);
                   if (s && s->hSubMenu == m)
                   {
+                    const int old = m2->sel_vis;
                     m2->sel_vis = x;
-                    InvalidateRect(h,NULL,FALSE);
+                    submenu_invalidate_selection(h,old);
                     break;
                   }
                 }
@@ -1238,7 +1240,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
           SendMessage(hwnd,WM_USER+100,mode,GET_Y_LPARAM(lParam));
         }
         else menu->sel_vis = -1;
-        if (oldsel != menu->sel_vis) InvalidateRect(hwnd,NULL,FALSE);
+        submenu_invalidate_selection(hwnd,oldsel);
       }
     return 0;
     case WM_LBUTTONUP:
