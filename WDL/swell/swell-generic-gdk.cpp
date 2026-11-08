@@ -1582,16 +1582,31 @@ static void OnScrollEvent(GdkEventScroll *b)
     POINT p2={(int)b->x_root, (int)b->y_root};
     // p2 is screen coordinates for WM_MOUSEWHEEL
 
-    int msg=(b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_DOWN) ? WM_MOUSEWHEEL :
-            (b->direction == GDK_SCROLL_LEFT || b->direction == GDK_SCROLL_RIGHT) ? WM_MOUSEHWHEEL : 0;
-  
-    if (msg) 
+#if SWELL_TARGET_GDK >= 3
+    if (b->direction == GDK_SCROLL_SMOOTH)
     {
-      int v = (b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_LEFT) ? 120 : -120;
-
+      const double dy = b->delta_y * 120.0, dx = b->delta_x * 120.0;
+      const int vy = -(int)(dy >= 0 ? dy + 0.5 : dy - 0.5);
+      const int vx = -(int)(dx >= 0 ? dx + 0.5 : dx - 0.5);
       if (hwnd) hwnd->Retain();
-      SWELL_SendMouseMessage(hwnd, msg, (v<<16), MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
+      if (vy) SWELL_SendMouseMessage(hwnd, WM_MOUSEWHEEL, (vy<<16), MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
+      if (vx) SWELL_SendMouseMessage(hwnd, WM_MOUSEHWHEEL, (vx<<16), MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
       if (hwnd) hwnd->Release();
+    }
+    else
+#endif
+    {
+      int msg=(b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_DOWN) ? WM_MOUSEWHEEL :
+              (b->direction == GDK_SCROLL_LEFT || b->direction == GDK_SCROLL_RIGHT) ? WM_MOUSEHWHEEL : 0;
+
+      if (msg)
+      {
+        int v = (b->direction == GDK_SCROLL_UP || b->direction == GDK_SCROLL_LEFT) ? 120 : -120;
+
+        if (hwnd) hwnd->Retain();
+        SWELL_SendMouseMessage(hwnd, msg, (v<<16), MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
+        if (hwnd) hwnd->Release();
+      }
     }
   }
 }
