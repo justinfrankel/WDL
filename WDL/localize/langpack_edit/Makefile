@@ -61,7 +61,7 @@ LINKEXTRA =  -lpthread -ldl
 ifndef NOGDK
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
-    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0)
+    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
     LINKEXTRA += -lX11 -lXi
   else
     ifdef SWELL_SUPPORT_GTK
@@ -73,7 +73,7 @@ ifndef NOGDK
     ifdef SWELL_SUPPORT_GTK
       LINKEXTRA += $(shell $(PKG_CONFIG) --libs gtk+-3.0)
     else
-      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0)
+      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0)
     endif
   endif
   CFLAGS += -DSWELL_LICE_GDI

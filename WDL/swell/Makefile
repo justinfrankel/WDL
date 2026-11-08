@@ -112,7 +112,7 @@ ifndef NOGDK
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
     ifndef PRELOAD_GDK
-      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0)
+      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
     else
       LINKEXTRA += -lX11 -lXi
       CFLAGS += -DSWELL_PRELOAD="libgdk-x11-2.0.so.0"
@@ -127,7 +127,7 @@ ifndef NOGDK
       ifndef SWELL_GDK_ONLY
         LINKEXTRA += $(shell $(PKG_CONFIG) --libs gtk+-3.0)
       else
-        LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0)
+        LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0)
       endif
     else
       LINKEXTRA += -lX11 -lXi
