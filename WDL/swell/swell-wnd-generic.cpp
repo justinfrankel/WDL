@@ -8719,13 +8719,16 @@ void SWELL_DrawFocusRect(HWND hwndPar, RECT *rct, void **handle)
 
 void SWELL_BroadcastMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-  HWND h = SWELL_topwindows;
-  while (h) 
-  { 
+  WDL_PtrList<HWND__> windows;
+  for (HWND h = SWELL_topwindows; h; h = h->m_next)
+    if (windows.Add(h)) h->Retain();
+  for (int i = 0; i < windows.GetSize(); ++i)
+  {
+    HWND h = windows.Get(i);
     SendMessage(h,uMsg,wParam,lParam);
-    if (uMsg == WM_DISPLAYCHANGE)
+    if (uMsg == WM_DISPLAYCHANGE && !h->m_hashaddestroy)
       InvalidateRect(h,NULL,FALSE);
-    h = h->m_next;
+    h->Release();
   }
 }
 
