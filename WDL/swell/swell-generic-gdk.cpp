@@ -178,6 +178,7 @@ struct clip_fmt {
 static WDL_TypedBuf<clip_fmt> s_clip_fmts; // mapping of UINT clipboard types, offset by 1 (s_clip_fmts.Get()[0] is CF_TEXT=1, etc)
 
 static HWND s_clip_hwnd;
+static GdkWindow *s_clipboard_window;
 
 // clipboard data added by SetClipboardData():
 static WDL_TypedBuf<GdkAtom> s_clipboard_setstate; // stored as separate lists so we can easily pass to properties
@@ -1029,6 +1030,7 @@ static HANDLE *find_clipboard_setstate(GdkAtom a)
 
 static void OnSelectionRequestEvent(GdkEventSelection *b)
 {
+  if (b->window != swell_dragsrc_osw && b->window != s_clipboard_window) return;
   //printf("got sel req %s\n",gdk_atom_name(b->target));
   GdkAtom prop=GDK_NONE;
 
@@ -2496,21 +2498,20 @@ void SetClipboardData(UINT type, HANDLE h)
       *state = h;
     }
 
-    static GdkWindow *w;
-    if (!w)
+    if (!s_clipboard_window)
     {
       GdkWindowAttr attr={0,};
       attr.title = (char *)"swell clipboard";
       attr.event_mask = GDK_ALL_EVENTS_MASK;
       attr.wclass = GDK_INPUT_ONLY;
       attr.window_type = GDK_WINDOW_TOPLEVEL;
-      w = gdk_window_new(NULL,&attr,0);
+      s_clipboard_window = gdk_window_new(NULL,&attr,0);
     }
-    if (w && !s_clipboard_written)
+    if (s_clipboard_window && !s_clipboard_written)
     {
       s_clipboard_written = true;
       s_clipboard_enumstate.DeleteAll();
-      gdk_selection_owner_set(w,GDK_SELECTION_CLIPBOARD,GDK_CURRENT_TIME,TRUE);
+      gdk_selection_owner_set(s_clipboard_window,GDK_SELECTION_CLIPBOARD,GDK_CURRENT_TIME,TRUE);
     }
     if (WDL_NORMALLY(type != 0))
       s_clipboard_enumstate.Insert(type);
