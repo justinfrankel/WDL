@@ -2878,40 +2878,22 @@ static void forward_x11_drag_message(int gdkmsg, GdkEventDND *gdkevent, Window n
       xev.message_type = XInternAtom(dpy, "XdndEnter", False);
       xev.data.l[1] = (3 << 24); // protocol version 3
       {
-        // mime types in 2/3/4, prioritizing any uri-list
-        GList * const lb = gdk_drag_context_list_targets(gdkevent->context);
-        int cnt = 0;
-        for (int pass = 0; cnt <= 3 && pass < 2; pass ++)
-        {
-          GList *l = lb;
-          while (cnt <= 3 && l)
+        GList *targets = gdk_drag_context_list_targets(gdkevent->context);
+        WDL_TypedBuf<Atom> types;
+        for (int pass = 0; pass < 2; ++pass)
+          for (GList *l = targets; l; l = l->next)
           {
-            const char *n = gdk_atom_name((GdkAtom)l->data);
-            if (n && (!strstr(n,"uri-list")) == pass)
-            {
-              if (cnt<3)
-                xev.data.l[2+cnt] = gdk_x11_atom_to_xatom_for_display(display, (GdkAtom) l->data);
-              cnt++;
-            }
-            l = l->next;
+            gchar *name = gdk_atom_name((GdkAtom)l->data);
+            if (name && (!strstr(name, "uri-list")) == pass)
+              types.Add(gdk_x11_atom_to_xatom_for_display(display, (GdkAtom)l->data));
+            g_free(name);
           }
-        }
-        if (cnt > 3)
+        for (int i = 0; i < types.GetSize() && i < 3; ++i) xev.data.l[2+i] = types.Get()[i];
+        if (types.GetSize() > 3)
         {
-          Atom *p = (Atom *)malloc(cnt * sizeof(Atom));
-          if (WDL_NORMALLY(p))
-          {
-            xev.data.l[1] |= 1;
-            GList *l = lb;
-            int i = 0;
-            while (i < cnt && l)
-            {
-              p[i++] = gdk_x11_atom_to_xatom_for_display(display,(GdkAtom)l->data);
-              l = l->next;
-            }
-            XChangeProperty(dpy, container, XInternAtom(dpy,"XdndTypeList",False), XA_ATOM, 32, PropModeReplace, (unsigned char*)p, i);
-            free(p);
-          }
+          xev.data.l[1] |= 1;
+          XChangeProperty(dpy, container, XInternAtom(dpy,"XdndTypeList",False), XA_ATOM,
+              32, PropModeReplace, (const unsigned char*)types.Get(), types.GetSize());
         }
       }
     break;
