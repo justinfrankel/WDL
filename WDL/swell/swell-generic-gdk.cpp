@@ -40,6 +40,7 @@ extern "C" {
 #ifdef SWELL_TARGET_GDK
 
 #include "swell-internal.h"
+#include <limits.h>
 #include "swell-dlggen.h"
 #include "../wdlcstring.h"
 #include "../wdlutf8.h"
@@ -562,14 +563,17 @@ class LICE_CairoBitmap : public LICE_IBitmap
       if (h<0) h=0;
       if (w == m_width && h == m_height) return false;
 
+      const int span = w ? cairo_format_stride_for_width(CAIRO_FORMAT_RGB24,w)/4 : 0;
+      const WDL_INT64 size = (WDL_INT64)h * span * 4 + LICE_MEMBITMAP_ALIGNAMT;
+      if (span < w || size > INT_MAX) return false;
+
       if (m_surf) cairo_surface_destroy(m_surf);
       m_surf = NULL;
 
-      m_span = w ? cairo_format_stride_for_width(CAIRO_FORMAT_RGB24,w)/4 : 0;
-      const int sz = h * m_span * 4 + LICE_MEMBITMAP_ALIGNAMT;
+      const int sz = (int)size;
       if (!m_fb || m_allocsize < sz || sz < m_allocsize/4)
       {
-        const int newalloc = m_allocsize<sz ? (sz*3)/2 : sz;
+        const int newalloc = m_allocsize<sz ? sz + wdl_min(sz/2, INT_MAX-sz) : sz;
         void *p = realloc(m_fb,newalloc);
         if (!p) return false;
 
@@ -577,6 +581,7 @@ class LICE_CairoBitmap : public LICE_IBitmap
         m_allocsize = newalloc;
       }
 
+      m_span = span;
       m_width=w && h ? w :0;
       m_height=w && h ? h : 0;
       return true;
