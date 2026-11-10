@@ -7070,11 +7070,18 @@ HWND ChildWindowFromPoint(HWND h, POINT p)
 
   for(;;)
   {
-    HWND h2=h->m_children;
     RECT sr;
 
+    h->Retain();
     NCCALCSIZE_PARAMS tr={{h->m_position,},};
     if (h->m_wndproc) h->m_wndproc(h,WM_NCCALCSIZE,0,(LPARAM)&tr);
+    if (h->m_hashaddestroy)
+    {
+      h->Release();
+      return NULL;
+    }
+    h->Release();
+    HWND h2=h->m_children;
     r.left += tr.rgrc[0].left - h->m_position.left;
     r.top += tr.rgrc[0].top - h->m_position.top;
 
