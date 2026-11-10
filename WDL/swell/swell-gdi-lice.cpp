@@ -1725,10 +1725,12 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
   // todo: implement/use per-window backing store.
   //   we would want to only really use them for top level windows, and on those, only update windows (and children of windows) who had backingstore invalidated.
   if (hwnd->m_invalidated) forceref=true;
+  const bool child_invalidated = hwnd->m_child_invalidated;
+  hwnd->m_invalidated = hwnd->m_child_invalidated = false;
 
   int calced_w = -1, calced_h = -1;
   bool okToClearChild=true;
-  if (forceref || hwnd->m_child_invalidated)
+  if (forceref || child_invalidated)
   {
     swell_gdpLocalContext ctx;
     memset(&ctx,0,sizeof(ctx));
@@ -1811,11 +1813,10 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
       if (hwnd->m_hashaddestroy) goto done;
    
       // it might be good to blit here on some OSes, rather than from the top level caller...
-      hwnd->m_invalidated=false;
     }
   }
 
-  if (forceref || hwnd->m_child_invalidated)
+  if (forceref || child_invalidated)
   {
     HWND h = hwnd->m_children;
     while (h) 
@@ -1860,14 +1861,18 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
             SWELL_internalLICEpaint(h,&subbm,-extra_xo-xp,-extra_yo-yp,forceref);
             const bool destroyed = h->m_hashaddestroy || hwnd->m_hashaddestroy;
             h->Release();
-            if (destroyed) goto done;
+            if (destroyed)
+            {
+              if (child_invalidated) hwnd->m_child_invalidated = true;
+              goto done;
+            }
           }
         }
       }
       h = h->m_next;
     }
   }
-  if (okToClearChild) hwnd->m_child_invalidated=false;
+  if (!okToClearChild) hwnd->m_child_invalidated=true;
 done:
 #ifdef _DEBUG
   g_swell_in_paint--;
