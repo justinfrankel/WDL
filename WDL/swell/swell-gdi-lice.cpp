@@ -1859,9 +1859,9 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
           {
             h->Retain();
             SWELL_internalLICEpaint(h,&subbm,-extra_xo-xp,-extra_yo-yp,forceref);
-            const bool destroyed = h->m_hashaddestroy || hwnd->m_hashaddestroy;
+            const bool interrupted = h->m_hashaddestroy || hwnd->m_hashaddestroy || h->m_parent != hwnd;
             h->Release();
-            if (destroyed)
+            if (interrupted)
             {
               if (child_invalidated) hwnd->m_child_invalidated = true;
               goto done;
