@@ -7114,29 +7114,38 @@ HWND ChildWindowFromPoint(HWND h, POINT p)
 
 static bool isHitTestOpaque(HWND h, const POINT p)
 {
-  return h->m_visible && HTTRANSPARENT != SendMessage(h, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y));
+  return !h->m_hashaddestroy && h->m_visible &&
+    HTTRANSPARENT != SendMessage(h, WM_NCHITTEST, 0, MAKELPARAM(p.x, p.y)) &&
+    !h->m_hashaddestroy && h->m_visible;
 }
 
 static HWND recurseOwnedWindowHitTest(HWND h, POINT p, int maxdepth)
 {
   RECT r;
   GetWindowContentViewRect(h,&r);
-  if (!PtInRect(&r,p)) return NULL;
+  if (h->m_hashaddestroy || !PtInRect(&r,p)) return NULL;
 
   // check any owned windows first, as they are always above our window
-  if (h->m_owned_list && maxdepth > 0)
+  HWND hit = NULL;
+  if (maxdepth > 0)
   {
-    HWND owned = h->m_owned_list;
-    while (owned)
+    WDL_PtrList<HWND__> windows;
+    for (HWND owned = h->m_owned_list; owned; owned = owned->m_owned_next)
+      if (windows.Add(owned)) owned->Retain();
+    for (int i = 0; i < windows.GetSize(); ++i)
     {
-      if (isHitTestOpaque(owned, p))
+      HWND owned = windows.Get(i);
+      if (!hit && !h->m_hashaddestroy && owned->m_owner == h && isHitTestOpaque(owned, p) &&
+          !h->m_hashaddestroy && owned->m_owner == h)
       {
-        HWND hit = recurseOwnedWindowHitTest(owned,p,maxdepth-1);
-        if (hit) return hit;
+        hit = recurseOwnedWindowHitTest(owned,p,maxdepth-1);
+        if (h->m_hashaddestroy || owned->m_owner != h) hit = NULL;
       }
-      owned = owned->m_owned_next;
+      owned->Release();
     }
   }
+  if (hit) return hit;
+  if (h->m_hashaddestroy) return NULL;
   p.x -= r.left;
   p.y -= r.top;
   return ChildWindowFromPoint(h,p);
@@ -7144,17 +7153,21 @@ static HWND recurseOwnedWindowHitTest(HWND h, POINT p, int maxdepth)
 
 HWND WindowFromPoint(POINT p)
 {
-  HWND h = SWELL_topwindows;
-  while (h)
+  WDL_PtrList<HWND__> windows;
+  for (HWND h = SWELL_topwindows; h; h = h->m_next)
+    if (windows.Add(h)) h->Retain();
+  HWND hit = NULL;
+  for (int i = 0; i < windows.GetSize(); ++i)
   {
-    if (isHitTestOpaque(h, p))
+    HWND h = windows.Get(i);
+    if (!hit && !h->m_parent && isHitTestOpaque(h, p) && !h->m_parent)
     {
-      HWND hit = recurseOwnedWindowHitTest(h,p,20);
-      if (hit) return hit;
+      hit = recurseOwnedWindowHitTest(h,p,20);
+      if (h->m_hashaddestroy || h->m_parent) hit = NULL;
     }
-    h = h->m_next;
+    h->Release();
   }
-  return NULL;
+  return hit;
 }
 
 #ifdef _DEBUG
