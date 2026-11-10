@@ -1318,9 +1318,8 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
 
   HWND hh=new HWND__(NULL,0,NULL,"menu",false,submenuWndProc,NULL, hwnd);
 
-  submenuWndProc(hh,WM_CREATE,0,(LPARAM)hMenu);
-
   SetProp(hh,"SWELL_MenuOwner",(HANDLE)hwnd);
+  submenuWndProc(hh,WM_CREATE,0,(LPARAM)hMenu);
 
   while (m_trackingRet<0 && m_trackingMenus.GetSize())
   {
