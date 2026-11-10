@@ -779,7 +779,10 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
         RECT r = hwnd->m_position;
         GdkWindowAttr attr={0,};
         attr.title = (char *)hwnd->m_title.Get();
-        attr.event_mask = GDK_ALL_EVENTS_MASK|GDK_EXPOSURE_MASK;
+        attr.event_mask = GDK_ALL_EVENTS_MASK;
+#if SWELL_TARGET_GDK == 3
+        attr.event_mask &= ~GDK_POINTER_MOTION_HINT_MASK;
+#endif
         attr.x = r.left;
         attr.y = r.top;
         attr.width = r.right-r.left;
