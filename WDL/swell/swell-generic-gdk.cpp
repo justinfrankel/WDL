@@ -1567,8 +1567,8 @@ static void OnMotionEvent(GdkEventMotion *m)
   if (hwnd)
   {
     POINT p2={(int)m->x_root, (int)m->y_root};
+    hwnd->Retain();
     ScreenToClient(hwnd, &p2);
-    if (hwnd) hwnd->Retain();
     SWELL_SendMouseMessage(hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(p2.x, p2.y), (int)m->x_root, (int)m->y_root);
     if (hwnd) hwnd->Release();
   }
@@ -1620,9 +1620,12 @@ static void OnButtonEvent(GdkEventButton *b)
 {
   HWND hwnd = swell_oswindow_to_hwnd(b->window);
   if (!hwnd) return;
+  hwnd->Retain();
+
   swell_lastMessagePos = MAKELONG(((int)b->x_root&0xffff),((int)b->y_root&0xffff));
   POINT p={(int)b->x, (int)b->y};
   HWND hwnd2 = getMouseTarget(b->window,p,&hwnd);
+  if (hwnd2) hwnd2->Retain();
 
   POINT p2={(int)b->x_root, (int)b->y_root};
   ScreenToClient(hwnd2, &p2);
@@ -1630,8 +1633,6 @@ static void OnButtonEvent(GdkEventButton *b)
   int msg=WM_LBUTTONDOWN;
   if (b->button==2) msg=WM_MBUTTONDOWN;
   else if (b->button==3) msg=WM_RBUTTONDOWN;
-
-  if (hwnd2) hwnd2->Retain();
 
   if (b->type == GDK_BUTTON_PRESS)
   {
@@ -1677,7 +1678,8 @@ static void OnButtonEvent(GdkEventButton *b)
     SWELL_SendMouseMessage(hwnd2, msg, 0, MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
 
     // if capture was released by WM_LBUTTONUP, allow the DBLCLICK to go to the correct window
-    HWND hwnd3 = getMouseTarget(b->window,p,&hwnd);
+    HWND hwnd3 = !hwnd->m_hashaddestroy && hwnd->m_oswindow == b->window ?
+        getMouseTarget(b->window,p,&hwnd) : NULL;
     if (hwnd3 != hwnd2)
     {
       if (hwnd2) hwnd2->Release();
@@ -1693,6 +1695,7 @@ static void OnButtonEvent(GdkEventButton *b)
 
   SWELL_SendMouseMessage(hwnd2, msg, 0, MAKELPARAM(p2.x, p2.y), (int)b->x_root, (int)b->y_root);
   if (hwnd2) hwnd2->Release();
+  hwnd->Release();
 }
 
 
