@@ -573,6 +573,57 @@ public:
 private:
   cairo_surface_t *m_surf;
 };
+
+class LICE_CairoBitmapView : public LICE_WrapperBitmap
+{
+public:
+  LICE_CairoBitmapView(LICE_IBitmap &bitmap)
+    : LICE_WrapperBitmap(bitmap.getWidth() > 0 && bitmap.getHeight() > 0 ? bitmap.getBits() : NULL,
+        bitmap.getWidth(), bitmap.getHeight(), bitmap.getRowSpan(), bitmap.isFlipped()),
+      m_surface((cairo_surface_t *)bitmap.Extended(0xca140, NULL))
+  {
+    if (m_surface)
+    {
+      cairo_surface_reference(m_surface);
+      cairo_surface_flush(m_surface);
+    }
+  }
+  virtual ~LICE_CairoBitmapView() { if (m_surface) cairo_surface_destroy(m_surface); }
+  virtual INT_PTR Extended(int id, void *data)
+  {
+    return id == 0xca140 && !data ? (INT_PTR)m_surface : 0;
+  }
+private:
+  cairo_surface_t *m_surface;
+};
+
+LICE_IBitmap *swell_oswindow_acquire_bitmap(LICE_IBitmap *bitmap, int x, int y, int w, int h)
+{
+  LICE_SubBitmap clipped(bitmap, x, y, w, h);
+  return new LICE_CairoBitmapView(clipped);
+}
+
+void swell_oswindow_release_bitmap(HWND hwnd, LICE_IBitmap *bitmap, const RECT *dirty)
+{
+  cairo_surface_t *surface = bitmap ? (cairo_surface_t *)bitmap->Extended(0xca140, NULL) : NULL;
+  if (surface && dirty)
+  {
+    cairo_surface_mark_dirty(surface);
+    if (hwnd && hwnd->m_oswindow && hwnd->m_backingstore &&
+        hwnd->m_backingstore->Extended(0xca140, NULL) == (INT_PTR)surface &&
+        dirty->left < dirty->right && dirty->top < dirty->bottom)
+    {
+      GdkRectangle area = { dirty->left, dirty->top, dirty->right-dirty->left, dirty->bottom-dirty->top };
+      gdk_window_begin_paint_rect(hwnd->m_oswindow, &area);
+      cairo_t *cr = gdk_cairo_create(hwnd->m_oswindow);
+      cairo_set_source_surface(cr, surface, 0, 0);
+      cairo_paint(cr);
+      cairo_destroy(cr);
+      gdk_window_end_paint(hwnd->m_oswindow);
+    }
+  }
+  delete bitmap;
+}
 #endif
 
 static int swell_gdk_option(const char *name, const char *defstr, int defv)
@@ -848,30 +899,6 @@ void swell_oswindow_maximize(HWND hwnd, bool wantmax) // false=restore
     else
       gdk_window_unmaximize(hwnd->m_oswindow);
   }
-}
-
-void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
-{
-#ifdef SWELL_LICE_GDI
-  if (hwnd && hwnd->m_backingstore && hwnd->m_oswindow)
-  {
-    LICE_IBitmap *bm = hwnd->m_backingstore;
-    LICE_SubBitmap tmpbm(bm,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top);
-
-    GdkRectangle rrr={rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top};
-    gdk_window_begin_paint_rect(hwnd->m_oswindow, &rrr);
-
-    cairo_t * crc = gdk_cairo_create (hwnd->m_oswindow);
-    cairo_surface_t *temp_surface = (cairo_surface_t*)bm->Extended(0xca140,NULL);
-    if (temp_surface) cairo_set_source_surface(crc, temp_surface, 0,0);
-    cairo_paint(crc);
-    cairo_destroy(crc);
-
-    gdk_window_end_paint(hwnd->m_oswindow);
-
-
-  }
-#endif
 }
 
 #if SWELL_TARGET_GDK == 2

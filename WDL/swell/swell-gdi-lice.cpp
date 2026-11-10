@@ -1636,9 +1636,8 @@ HDC SWELL_internalGetWindowDC(HWND h, bool calcsize_on_first)
 
   if (h->m_backingstore && vis)
   {
-    p->ctx.surface=new LICE_SubBitmap(h->m_backingstore,
-        xoffs+ltrim,yoffs+ttrim,
-        wndw-ltrim-rtrim,wndh-ttrim-btrim);
+    p->ctx.surface = swell_oswindow_acquire_bitmap(h->m_backingstore,
+        xoffs+ltrim, yoffs+ttrim, wndw-ltrim-rtrim, wndh-ttrim-btrim);
     p->clipr.right += p->ctx.surface->getWidth();
     p->clipr.bottom += p->ctx.surface->getHeight();
   }
@@ -1666,34 +1665,26 @@ void ReleaseDC(HWND h, HDC hdc)
 {
   if (WDL_NOT_NORMALLY(!h) || !HDC_VALID(hdc)) return;
   swell_gdpLocalContext *p = (swell_gdpLocalContext*)hdc;
-
-
-  if (!h->m_paintctx)
+  HWND par = h;
+  while (par && !par->m_backingstore) par=par->m_parent;
+  RECT r = p->clipr;
+  if (p->ctx.dirty_rect_valid)
   {
     // handle blitting?
-    HWND par = h;
-    while (par && !par->m_backingstore) par=par->m_parent;
-    if (par) 
-    {
-      if (p->ctx.dirty_rect_valid)
-      {
-        RECT r = p->clipr, dr=p->ctx.dirty_rect; 
-        dr.left += r.left;
-        dr.top += r.top;
-        dr.right += r.left;
-        dr.bottom += r.top;
+    RECT dr=p->ctx.dirty_rect;
+    dr.left += r.left;
+    dr.top += r.top;
+    dr.right += r.left;
+    dr.bottom += r.top;
 #if 1
-        if (dr.left > r.left) r.left=dr.left;
-        if (dr.top > r.top) r.top=dr.top;
-        if (dr.right < r.right) r.right=dr.right;
-        if (dr.bottom < r.bottom) r.bottom=dr.bottom;
+    if (dr.left > r.left) r.left=dr.left;
+    if (dr.top > r.top) r.top=dr.top;
+    if (dr.right < r.right) r.right=dr.right;
+    if (dr.bottom < r.bottom) r.bottom=dr.bottom;
 #endif
-
-        if (r.top<r.bottom && r.left<r.right) swell_oswindow_updatetoscreen(par,&r);
-      }
-    }
   }
-  delete p->ctx.surface;
+  swell_oswindow_release_bitmap(h->m_paintctx ? NULL : par, p->ctx.surface,
+      p->ctx.dirty_rect_valid ? &r : NULL);
   SWELL_GDP_CTX_DELETE(hdc);
 }
 

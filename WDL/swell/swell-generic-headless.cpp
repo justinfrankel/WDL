@@ -75,9 +75,17 @@ void SWELL_initargs(int *argc, char ***argv)
 {
 }
 
-void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
+#ifdef SWELL_LICE_GDI
+LICE_IBitmap *swell_oswindow_acquire_bitmap(LICE_IBitmap *bitmap, int x, int y, int w, int h)
 {
+  return new LICE_SubBitmap(bitmap, x, y, w, h);
 }
+
+void swell_oswindow_release_bitmap(HWND hwnd, LICE_IBitmap *bitmap, const RECT *dirty)
+{
+  delete bitmap;
+}
+#endif
 
 void swell_oswindow_manage(HWND hwnd, bool wantfocus)
 {
