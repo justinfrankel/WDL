@@ -141,10 +141,13 @@ bool GetWindowRect(HWND hwnd, RECT *r)
   }
 
   r->left=r->top=0; 
+  hwnd->Retain();
   ClientToScreen(hwnd,(LPPOINT)r);
   r->right = r->left + hwnd->m_position.right - hwnd->m_position.left;
   r->bottom = r->top + hwnd->m_position.bottom - hwnd->m_position.top;
-  return true;
+  const bool destroyed = hwnd->m_hashaddestroy != 0;
+  hwnd->Release();
+  return !destroyed;
 }
 
 void swell_oswindow_begin_resize(SWELL_OSWINDOW wnd) { }

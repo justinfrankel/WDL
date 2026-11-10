@@ -1591,10 +1591,17 @@ HDC SWELL_internalGetWindowDC(HWND h, bool calcsize_on_first)
   {
     if ((calcsize_on_first || h!=starth)  && h->m_wndproc)
     {
+      starth->Retain();
+      h->Retain();
       RECT r;
       GetWindowContentViewRect(h,&r);
       NCCALCSIZE_PARAMS p={{r,},};
-      h->m_wndproc(h,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      if (!h->m_hashaddestroy && !starth->m_hashaddestroy && h->m_wndproc)
+        h->m_wndproc(h,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      const bool destroyed = h->m_hashaddestroy || starth->m_hashaddestroy;
+      h->Release();
+      starth->Release();
+      if (destroyed) return NULL;
       RECT r2=r;
       r=p.rgrc[0];
 

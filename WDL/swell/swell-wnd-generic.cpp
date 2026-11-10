@@ -643,12 +643,15 @@ void ScreenToClient(HWND hwnd, POINT *pt)
   HWND tmp=hwnd;
   while (tmp)
   {
+    tmp->Retain();
     NCCALCSIZE_PARAMS p = {{ tmp->m_position, }, };
     if (tmp->m_wndproc) tmp->m_wndproc(tmp,WM_NCCALCSIZE,0,(LPARAM)&p);
 
     pt->x -= p.rgrc[0].left;
     pt->y -= p.rgrc[0].top;
-    tmp = tmp->m_parent;
+    HWND next = tmp->m_hashaddestroy ? NULL : tmp->m_parent;
+    tmp->Release();
+    tmp = next;
   }
 }
 
@@ -659,11 +662,14 @@ void ClientToScreen(HWND hwnd, POINT *pt)
   HWND tmp=hwnd;
   while (tmp)
   {
+    tmp->Retain();
     NCCALCSIZE_PARAMS p={{tmp->m_position, }, };
     if (tmp->m_wndproc) tmp->m_wndproc(tmp,WM_NCCALCSIZE,0,(LPARAM)&p);
     pt->x += p.rgrc[0].left;
     pt->y += p.rgrc[0].top;
-    tmp = tmp->m_parent;
+    HWND next = tmp->m_hashaddestroy ? NULL : tmp->m_parent;
+    tmp->Release();
+    tmp = next;
   }
 }
 
