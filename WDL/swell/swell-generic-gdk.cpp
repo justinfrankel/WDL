@@ -534,80 +534,43 @@ static bool swell_initwindowsys()
 #ifdef SWELL_LICE_GDI
 class LICE_CairoBitmap : public LICE_IBitmap
 {
-  public:
-    LICE_CairoBitmap() 
+public:
+  LICE_CairoBitmap() : m_surf(NULL) { }
+  virtual ~LICE_CairoBitmap() { if (m_surf) cairo_surface_destroy(m_surf); }
+
+  // LICE_IBitmap interface
+  virtual LICE_pixel *getBits() { return m_surf ? (LICE_pixel *)cairo_image_surface_get_data(m_surf) : NULL; }
+  virtual int getWidth() { return m_surf ? cairo_image_surface_get_width(m_surf) : 0; }
+  virtual int getHeight() { return m_surf ? cairo_image_surface_get_height(m_surf) : 0; }
+  virtual int getRowSpan() { return m_surf ? cairo_image_surface_get_stride(m_surf) / 4 : 0; }
+  virtual bool resize(int w, int h)
+  {
+    if (w <= 0 || h <= 0) w = h = 0;
+    if (w == getWidth() && h == getHeight()) return false;
+    const int stride = cairo_format_stride_for_width(CAIRO_FORMAT_RGB24, w);
+    const WDL_INT64 size = (WDL_INT64)stride * h + LICE_MEMBITMAP_ALIGNAMT;
+    if (stride < 0 || size > INT_MAX) return false;
+    void *data = malloc((size_t)size);
+    if (!data) return false;
+    unsigned char *bits = (unsigned char *)(((UINT_PTR)data + LICE_MEMBITMAP_ALIGNAMT) & ~(UINT_PTR)LICE_MEMBITMAP_ALIGNAMT);
+    cairo_surface_t *surface = cairo_image_surface_create_for_data(bits, CAIRO_FORMAT_RGB24, w, h, stride);
+    static cairo_user_data_key_t key;
+    if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS ||
+        cairo_surface_set_user_data(surface, &key, data, free) != CAIRO_STATUS_SUCCESS)
     {
-      m_fb = NULL; 
-      m_allocsize = m_width = m_height = m_span = 0;
-      m_surf = NULL;
+      cairo_surface_destroy(surface);
+      free(data);
+      return false;
     }
-    virtual ~LICE_CairoBitmap() 
-    { 
-      if (m_surf) cairo_surface_destroy(m_surf);
-      free(m_fb);
-    }
-
-    // LICE_IBitmap interface
-    virtual LICE_pixel *getBits() 
-    { 
-      const UINT_PTR extra=LICE_MEMBITMAP_ALIGNAMT;
-      return (LICE_pixel *) (((UINT_PTR)m_fb + extra)&~extra);
-    }
-
-    virtual int getWidth() { return m_width; }
-    virtual int getHeight() { return m_height; }
-    virtual int getRowSpan() { return m_span; }
-    virtual bool resize(int w, int h)
-    {
-      if (w<0) w=0; 
-      if (h<0) h=0;
-      if (w == m_width && h == m_height) return false;
-
-      const int span = w ? cairo_format_stride_for_width(CAIRO_FORMAT_RGB24,w)/4 : 0;
-      const WDL_INT64 size = (WDL_INT64)h * span * 4 + LICE_MEMBITMAP_ALIGNAMT;
-      if (span < w || size > INT_MAX) return false;
-
-      if (m_surf) cairo_surface_destroy(m_surf);
-      m_surf = NULL;
-
-      const int sz = (int)size;
-      if (!m_fb || m_allocsize < sz || sz < m_allocsize/4)
-      {
-        const int newalloc = m_allocsize<sz ? sz + wdl_min(sz/2, INT_MAX-sz) : sz;
-        void *p = realloc(m_fb,newalloc);
-        if (!p) return false;
-
-        m_fb = (LICE_pixel *)p;
-        m_allocsize = newalloc;
-      }
-
-      m_span = span;
-      m_width=w && h ? w :0;
-      m_height=w && h ? h : 0;
-      return true;
-    }
-    virtual INT_PTR Extended(int id, void* data) 
-    { 
-      if (id == 0xca140) 
-      {
-        if (data) 
-        {
-          // in case we want to release surface
-          return 0;
-        }
-
-        if (!m_surf) 
-          m_surf = cairo_image_surface_create_for_data((guchar*)getBits(), CAIRO_FORMAT_RGB24, 
-                                                       getWidth(),getHeight(), getRowSpan()*4);
-        return (INT_PTR)m_surf;
-      }
-      return 0; 
-    }
-
+    if (m_surf) cairo_surface_destroy(m_surf);
+    m_surf = surface;
+    return true;
+  }
+  virtual INT_PTR Extended(int id, void *data)
+  {
+    return id == 0xca140 && !data ? (INT_PTR)m_surf : 0;
+  }
 private:
-  LICE_pixel *m_fb;
-  int m_width, m_height, m_span;
-  int m_allocsize;
   cairo_surface_t *m_surf;
 };
 #endif
@@ -906,7 +869,6 @@ void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect)
 
     gdk_window_end_paint(hwnd->m_oswindow);
 
-    if (temp_surface) bm->Extended(0xca140,temp_surface); // release
 
   }
 #endif
@@ -1176,30 +1138,36 @@ static void OnExposeEvent(GdkEventExpose *exp)
   bool forceref = hwnd->m_backingstore->resize(cr.right-cr.left,cr.bottom-cr.top);
   if (forceref) r = cr;
 
-  LICE_SubBitmap tmpbm(hwnd->m_backingstore,r.left,r.top,r.right-r.left,r.bottom-r.top);
-
-  if (tmpbm.getWidth()>0 && tmpbm.getHeight()>0) 
+  cairo_surface_t *surface = (cairo_surface_t *)hwnd->m_backingstore->Extended(0xca140, NULL);
+  if (!surface) return;
+  cairo_surface_reference(surface);
+  cairo_surface_flush(surface);
+  LICE_WrapperBitmap bitmap((LICE_pixel *)cairo_image_surface_get_data(surface),
+      cairo_image_surface_get_width(surface), cairo_image_surface_get_height(surface),
+      cairo_image_surface_get_stride(surface) / 4, false);
+  LICE_SubBitmap tmpbm(&bitmap,r.left,r.top,r.right-r.left,r.bottom-r.top);
+  if (tmpbm.getWidth() > 0 && tmpbm.getHeight() > 0)
   {
-    void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int bmout_ypos, bool forceref);
+    void SWELL_internalLICEpaint(HWND, LICE_IBitmap *, int, int, bool);
+    const GdkWindow *window = hwnd->m_oswindow;
     hwnd->Retain();
     SWELL_internalLICEpaint(hwnd, &tmpbm, r.left, r.top, forceref);
-    const bool destroyed = hwnd->m_hashaddestroy != 0;
+    cairo_surface_mark_dirty(surface);
+    const bool valid = !hwnd->m_hashaddestroy && hwnd->m_oswindow == window &&
+      hwnd->m_backingstore && hwnd->m_backingstore->Extended(0xca140, NULL) == (INT_PTR)surface;
     hwnd->Release();
-    if (destroyed) return;
-
-    GdkRectangle rrr={r.left,r.top,r.right-r.left,r.bottom-r.top};
-    gdk_window_begin_paint_rect(exp->window, &rrr);
-
-    cairo_t *crc = gdk_cairo_create (exp->window);
-    LICE_IBitmap *bm = hwnd->m_backingstore;
-    cairo_surface_t *temp_surface = (cairo_surface_t*)bm->Extended(0xca140,NULL);
-    if (temp_surface) cairo_set_source_surface(crc, temp_surface, 0,0);
-    cairo_paint(crc);
-    cairo_destroy(crc);
-    if (temp_surface) bm->Extended(0xca140,temp_surface); // release
-
-    gdk_window_end_paint(exp->window);
+    if (valid)
+    {
+      GdkRectangle rrr={r.left,r.top,r.right-r.left,r.bottom-r.top};
+      gdk_window_begin_paint_rect(exp->window, &rrr);
+      cairo_t *crc = gdk_cairo_create(exp->window);
+      cairo_set_source_surface(crc, surface, 0, 0);
+      cairo_paint(crc);
+      cairo_destroy(crc);
+      gdk_window_end_paint(exp->window);
+    }
   }
+  cairo_surface_destroy(surface);
 #endif
 }
 
