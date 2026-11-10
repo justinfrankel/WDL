@@ -1641,10 +1641,8 @@ HDC SWELL_internalGetWindowDC(HWND h, bool calcsize_on_first)
     p->clipr.right += p->ctx.surface->getWidth();
     p->clipr.bottom += p->ctx.surface->getHeight();
   }
-  if (xoffs<0) p->ctx.surface_offs.x = xoffs;
-  if (yoffs<0) p->ctx.surface_offs.y = yoffs;
-  p->ctx.surface_offs.x -= ltrim;
-  p->ctx.surface_offs.y -= ttrim;
+  p->ctx.surface_offs.x = wdl_min(xoffs, -ltrim);
+  p->ctx.surface_offs.y = wdl_min(yoffs, -ttrim);
 
   p->ctx.curfont = starth->m_font;
   // todo: other GDI defaults?
