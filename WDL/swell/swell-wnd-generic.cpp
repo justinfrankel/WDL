@@ -8971,18 +8971,20 @@ static int swell_im_hwnd_want(HWND hwnd)
 static void ime_commit_cb(GtkIMContext *im_context, const gchar *str, gpointer user_data)
 {
   HWND hwnd = swell_ime_target;
-  if (!hwnd) return;
-
-  const char *p = str;
-  while (*p)
+  if (!hwnd || !str) return;
+  WDL_FastString committed;
+  committed.Set(str);
+  str = committed.Get();
+  hwnd->Retain();
+  while (*str && !hwnd->m_hashaddestroy && swell_ime_target == hwnd)
   {
     int codepoint = 0;
-    int charlen = wdl_utf8_parsechar(p, &codepoint);
-    if (charlen < 1)
-      break;
+    const int charlen = wdl_utf8_parsechar(str, &codepoint);
+    if (charlen < 1) break;
     SendMessage(hwnd, WM_CHAR, (WPARAM)codepoint, 1);
-    p += charlen;
+    str += charlen;
   }
+  hwnd->Release();
 }
 
 static void ime_preedit_changed_cb(GtkIMContext *im_context, gpointer user_data)
@@ -9077,55 +9079,59 @@ static gboolean ime_delete_surrounding_cb(GtkIMContext *im_context, int offset, 
 
 void swell_im_update_candidates_location()
 {
-  if (!swell_gtk_im_context_set_cursor_location || !swell_ime_context || !swell_ime_target) return;
-
+  if (!swell_gtk_im_context_set_cursor_location || !swell_ime_context) return;
   HWND hwnd = GetFocus();
-  if (hwnd != swell_ime_target) return;
-
+  if (!hwnd || hwnd != swell_ime_target || hwnd->m_hashaddestroy) return;
   HWND client_hwnd = hwnd;
   while (client_hwnd && !client_hwnd->m_oswindow) client_hwnd = client_hwnd->m_parent;
   if (!client_hwnd) return;
-
-  const int type = swell_im_hwnd_want(hwnd);
-  __SWELL_editControlState *es = NULL;
-  if (type == 2)
-    es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
-  else if (type == 1)
-    es = (__SWELL_editControlState*)hwnd->m_private_data;
-
-  RECT hwnd_r, client_r;
+  hwnd->Retain();
+  client_hwnd->Retain();
+  SWELL_OSWINDOW native = client_hwnd->m_oswindow;
+  RECT hwnd_r = {0,}, client_r = {0,};
   GetWindowRect(hwnd, &hwnd_r);
   GetWindowContentViewRect(client_hwnd, &client_r);
-
   int x = hwnd_r.left - client_r.left, y = hwnd_r.top - client_r.top;
-
-  int cursor_pos = es ? es->cursor_pos : 0;
-  if (es && es->sel1 == 0 && es->sel2>0) cursor_pos = 0;
-
-  HDC hdc = GetDC(hwnd);
+  HDC hdc = hwnd->m_hashaddestroy ? NULL : GetDC(hwnd);
   if (hdc)
   {
-    RECT tmp = { 0, };
-    const int line_h = DrawText(hdc, " ", 1, &tmp, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
-    if (es && cursor_pos > 0)
+    if (!hwnd->m_hashaddestroy)
     {
-      const bool multiline = type == 1 && (hwnd->m_style & ES_MULTILINE) != 0;
-      const int wwrap = (hwnd->m_style & ES_AUTOHSCROLL) ? 0 :
-                            hwnd->m_position.right - hwnd->m_position.left - g_swell_ctheme.scrollbar_width;
-      POINT pt = {0, 0};
-      int singleline_len = multiline ? -1 : hwnd->m_title.GetLength();
-
-      if (editGetCharPos(hdc, hwnd->m_title.Get(), singleline_len, cursor_pos, line_h, &pt, wwrap, es, hwnd))
+      const int type = swell_im_hwnd_want(hwnd);
+      __SWELL_editControlState *es = NULL;
+      if (type == 2 && hwnd->m_private_data)
+        es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
+      else if (type == 1)
+        es = (__SWELL_editControlState*)hwnd->m_private_data;
+      int cursor_pos = es ? es->cursor_pos : 0;
+      if (es && es->sel1 == 0 && es->sel2 > 0) cursor_pos = 0;
+      RECT tmp = {0,};
+      const int line_h = DrawText(hdc, " ", 1, &tmp, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+      if (es && cursor_pos > 0)
       {
-        x += pt.x;
-        y += pt.y;
+        const bool multiline = type == 1 && (hwnd->m_style & ES_MULTILINE) != 0;
+        const int wwrap = (hwnd->m_style & ES_AUTOHSCROLL) ? 0 :
+          hwnd->m_position.right - hwnd->m_position.left - g_swell_ctheme.scrollbar_width;
+        POINT pt = {0, 0};
+        const int singleline_len = multiline ? -1 : hwnd->m_title.GetLength();
+        if (editGetCharPos(hdc, hwnd->m_title.Get(), singleline_len, cursor_pos, line_h, &pt, wwrap, es, hwnd))
+        {
+          x += pt.x;
+          y += pt.y;
+        }
       }
+      y += line_h;
     }
-    y += line_h;
     ReleaseDC(hwnd, hdc);
   }
-  GdkRectangle preedit_area = {x, y, 0, 0};
-  swell_gtk_im_context_set_cursor_location(swell_ime_context, &preedit_area);
+  if (!hwnd->m_hashaddestroy && !client_hwnd->m_hashaddestroy && hwnd == swell_ime_target &&
+      client_hwnd->m_oswindow == native && swell_oswindow_from_hwnd(hwnd) == native)
+  {
+    GdkRectangle preedit_area = {x, y, 0, 0};
+    swell_gtk_im_context_set_cursor_location(swell_ime_context, &preedit_area);
+  }
+  client_hwnd->Release();
+  hwnd->Release();
 }
 
 static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int &sel1, int &sel2, int &cursor_pos, WDL_FastString *title_out, const WDL_FastString *orig_title)
