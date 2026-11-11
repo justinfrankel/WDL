@@ -9041,16 +9041,37 @@ static gboolean ime_retrieve_surrounding_cb(GtkIMContext *im_context, gpointer u
 static gboolean ime_delete_surrounding_cb(GtkIMContext *im_context, int offset, int n_chars, gpointer user_data)
 {
   HWND hwnd = swell_ime_target;
-  if (!hwnd) return false;
+  if (!hwnd || hwnd->m_hashaddestroy || n_chars < 0 || (hwnd->m_style & ES_READONLY)) return false;
+  const int type = swell_im_hwnd_want(hwnd);
+  __SWELL_editControlState *es = NULL;
+  if (type == 2 && hwnd->m_private_data)
+    es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
+  else if (type == 1)
+    es = (__SWELL_editControlState*)hwnd->m_private_data;
+  if (!es || (type == 2 && (hwnd->m_style & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST)) return false;
 
-  int index1 = utf8fs_charpos_to_bytepos(&hwnd->m_title,offset);
-  int index2 = utf8fs_charpos_to_bytepos(&hwnd->m_title,offset+n_chars);
-  if (index2>index1)
+  const int characters = WDL_utf8_get_charlen(hwnd->m_title.Get());
+  const WDL_INT64 start = (WDL_INT64)es->cursor_pos + offset;
+  const int from = (int)wdl_clamp(start, (WDL_INT64)0, (WDL_INT64)characters);
+  const int to = (int)wdl_clamp(start + n_chars, (WDL_INT64)0, (WDL_INT64)characters);
+  if (to > from)
   {
-    hwnd->m_title.DeleteSub(index1,index2-index1);
-    InvalidateRect(hwnd,NULL,FALSE);
+    const int first = utf8fs_charpos_to_bytepos(&hwnd->m_title, from);
+    const int last = utf8fs_charpos_to_bytepos(&hwnd->m_title, to);
+    hwnd->m_title.DeleteSub(first, last - first);
+    int *positions[] = { &es->cursor_pos, &es->sel1, &es->sel2 };
+    for (int i = 0; i < 3; ++i)
+      if (*positions[i] > from) *positions[i] -= wdl_min(*positions[i], to) - from;
+    es->cache_linelen_w = es->cache_linelen_strlen = es->cursor_state = 0;
+    hwnd->Retain();
+    es->autoScrollToOffset(hwnd, es->cursor_pos, type == 1 && (hwnd->m_style & ES_MULTILINE),
+        type == 1 && (hwnd->m_style & (ES_MULTILINE | ES_AUTOHSCROLL)) == ES_MULTILINE);
+    if (!hwnd->m_hashaddestroy) InvalidateRect(hwnd, NULL, FALSE);
+    if (!hwnd->m_hashaddestroy)
+      SendMessage(GetParent(hwnd), WM_COMMAND,
+          ((type == 2 ? CBN_EDITCHANGE : EN_CHANGE) << 16) | (hwnd->m_id & 0xffff), (LPARAM)hwnd);
+    hwnd->Release();
   }
-
   return true;
 }
 
