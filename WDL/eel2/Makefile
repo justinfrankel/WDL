@@ -94,12 +94,14 @@ ifndef NO_GFX
   else
 
     CFLAGS += -DSWELL_LICE_GDI -DSWELL_EXTRA_MINIMAL
+    CFLAGS += $(shell $(PKG_CONFIG) --cflags x11-xcb xcb-icccm xcb-xinput)
+    LFLAGS += $(shell $(PKG_CONFIG) --libs x11-xcb xcb-icccm xcb-xinput)
     ifdef GDK2
       CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
-      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0) -lX11 -lXi
+      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0) -lX11
     else
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gdk-3.0)
-      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0) -lX11 -lXi
+      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0) -lX11
     endif
     ifndef NOFREETYPE
       CFLAGS += -DSWELL_FREETYPE $(shell $(PKG_CONFIG) --cflags freetype2)

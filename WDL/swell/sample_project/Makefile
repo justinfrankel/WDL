@@ -51,17 +51,19 @@ endif
 LINKEXTRA =  -lpthread -ldl
 
 ifndef NOGDK
+  CFLAGS += $(shell $(PKG_CONFIG) --cflags x11-xcb xcb-icccm xcb-xinput)
+  LINKEXTRA += $(shell $(PKG_CONFIG) --libs x11-xcb xcb-icccm xcb-xinput)
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
     LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
-    LINKEXTRA += -lX11 -lXi -lGL
+    LINKEXTRA += -lX11 -lGL
   else
     ifdef SWELL_SUPPORT_GTK
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gtk+-3.0) -DSWELL_SUPPORT_GTK
     else
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gdk-3.0)
     endif
-    LINKEXTRA += -lX11 -lXi -lGL
+    LINKEXTRA += -lX11 -lGL
     ifdef SWELL_SUPPORT_GTK
       LINKEXTRA += $(shell $(PKG_CONFIG) --libs gtk+-3.0)
     else

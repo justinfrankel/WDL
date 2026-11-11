@@ -52,7 +52,26 @@ extern "C" {
 
 #include <X11/extensions/XInput2.h>
 
-#include <X11/Xatom.h>
+#include <X11/Xlib-xcb.h>
+#include <xcb/xcb_icccm.h>
+#include <xcb/xinput.h>
+
+#include <xcb/xcb.h>
+#include <stdlib.h>
+
+static inline bool swell_xcb_translate(xcb_connection_t *connection, xcb_window_t source,
+    xcb_window_t destination, int x, int y, int *out_x, int *out_y)
+{
+    xcb_translate_coordinates_reply_t *reply = xcb_translate_coordinates_reply(connection,
+        xcb_translate_coordinates(connection, source, destination, x, y), NULL);
+    if (!reply) return false;
+    *out_x = reply->dst_x;
+    *out_y = reply->dst_y;
+    const bool same_screen = reply->same_screen;
+    free(reply);
+    return same_screen;
+}
+
 
 #include <GL/gl.h>
 #include <GL/glx.h>
@@ -67,48 +86,34 @@ static void (*_gdk_drag_drop_done)(GdkDragContext *, gboolean); // may not alway
 
 static guint32 _gdk_x11_window_get_desktop(GdkWindow *window)
 {
-  Atom type;
-  gint format;
-  gulong nitems=0, bytes_after; 
-  guchar *data = NULL;
-
-  if (!window || !gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(window), 
-                                           gdk_atom_intern_static_string("_NET_WM_DESKTOP"))) 
-    return 0;
-
-  if (XGetWindowProperty(GDK_WINDOW_XDISPLAY(window), GDK_WINDOW_XID(window),
-      gdk_x11_get_xatom_by_name_for_display(gdk_window_get_display(window), "_NET_WM_DESKTOP"),
-                        0, G_MAXLONG, false, XA_CARDINAL, &type, &format, &nitems, &bytes_after, &data) != Success) return 0;
-
-  if (type != XA_CARDINAL || nitems<1)
-  {
-    if (data) XFree(data);
-    return 0;
-  }
-  nitems = *(gulong *)data;
-  XFree(data);
-  return (guint32) nitems;
+  if (!window || !gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(window),
+      gdk_atom_intern_static_string("_NET_WM_DESKTOP"))) return 0;
+  xcb_connection_t *connection = XGetXCBConnection(GDK_WINDOW_XDISPLAY(window));
+  xcb_get_property_reply_t *reply = xcb_get_property_reply(connection,
+      xcb_get_property(connection, false, GDK_WINDOW_XID(window),
+          gdk_x11_get_xatom_by_name_for_display(gdk_window_get_display(window), "_NET_WM_DESKTOP"),
+          XCB_ATOM_CARDINAL, 0, 1), NULL);
+  const guint32 desktop = reply && reply->format == 32 && reply->value_len ?
+      *(uint32_t*)xcb_get_property_value(reply) : 0;
+  free(reply);
+  return desktop;
 }
 
 static void _gdk_x11_window_move_to_desktop(GdkWindow *window, guint32 desktop)
 {
-  XClientMessageEvent xclient;
-
-  if (!window || !gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(window), 
-                                           gdk_atom_intern_static_string("_NET_WM_DESKTOP"))) 
-    return;
-
-  memset (&xclient, 0, sizeof (xclient));
-  xclient.type = ClientMessage;
-  xclient.send_event = true;
-  xclient.window = GDK_WINDOW_XID(window);
-  xclient.message_type = gdk_x11_get_xatom_by_name_for_display(gdk_window_get_display(window), "_NET_WM_DESKTOP");
-  xclient.format = 32;
-  xclient.data.l[0] = desktop;
-  xclient.data.l[1] = 1;
-
-  XSendEvent(GDK_WINDOW_XDISPLAY(window), gdk_x11_get_default_root_xwindow(), false,
-            SubstructureRedirectMask | SubstructureNotifyMask, (XEvent *)&xclient);
+  if (!window || !gdk_x11_screen_supports_net_wm_hint(gdk_window_get_screen(window),
+      gdk_atom_intern_static_string("_NET_WM_DESKTOP"))) return;
+  xcb_connection_t *connection = XGetXCBConnection(GDK_WINDOW_XDISPLAY(window));
+  xcb_client_message_event_t event = {};
+  event.response_type = XCB_CLIENT_MESSAGE;
+  event.window = GDK_WINDOW_XID(window);
+  event.type = gdk_x11_get_xatom_by_name_for_display(gdk_window_get_display(window), "_NET_WM_DESKTOP");
+  event.format = 32;
+  event.data.data32[0] = desktop;
+  event.data.data32[1] = 1;
+  xcb_send_event(connection, false, GDK_WINDOW_XID(gdk_screen_get_root_window(gdk_window_get_screen(window))),
+      XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY, (const char*)&event);
+  xcb_flush(connection);
 }
 
 // for m_oswindow_private
@@ -305,7 +310,7 @@ void swell_oswindow_update_text(HWND hwnd)
   }
 }
 
-static Window get_x11_first_child(Display *disp, Window xid);
+static xcb_window_t get_x11_first_child(xcb_connection_t *connection, xcb_window_t xid);
 
 void swell_oswindow_focus(HWND hwnd)
 {
@@ -325,11 +330,12 @@ void swell_oswindow_focus(HWND hwnd)
       // verify we already have focus
       GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
       Display *dpy = gdk_x11_display_get_xdisplay(display);
-      Window cf = 0;
-      int cfm = 0;
-      XGetInputFocus(dpy,&cf,&cfm);
+      xcb_connection_t *connection = XGetXCBConnection(dpy);
+      xcb_get_input_focus_reply_t *reply = xcb_get_input_focus_reply(connection, xcb_get_input_focus(connection), NULL);
+      xcb_window_t cf = reply ? reply->focus : XCB_NONE;
+      free(reply);
       if (!cf || (cf != GDK_WINDOW_XID(hwnd->m_oswindow) &&
-                  cf != get_x11_first_child(dpy,GDK_WINDOW_XID(hwnd->m_oswindow))))
+                  cf != get_x11_first_child(connection,GDK_WINDOW_XID(hwnd->m_oswindow))))
       {
 #ifdef _DEBUG
         printf("swell-generic-gdk: our window (%d) was marked as focused, however another window (%d) was reported focused via XGetInputFocus(), correcting.\n",
@@ -356,17 +362,10 @@ void swell_oswindow_focus(HWND hwnd)
         {
           GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
           Display *dpy = gdk_x11_display_get_xdisplay(display);
-#if SWELL_TARGET_GDK == 2
-          gdk_error_trap_push();
-#else
-          gdk_x11_display_error_trap_push (display);
-#endif
-          XSetInputFocus(dpy,GDK_WINDOW_XID(hwnd->m_oswindow),RevertToNone,CurrentTime);
-#if SWELL_TARGET_GDK == 2
-          gdk_error_trap_pop();
-#else
-          gdk_x11_display_error_trap_pop_ignored (display);
-#endif
+          xcb_connection_t *connection = XGetXCBConnection(dpy);
+          xcb_discard_reply(connection, xcb_set_input_focus_checked(connection,
+              XCB_INPUT_FOCUS_NONE, GDK_WINDOW_XID(hwnd->m_oswindow), XCB_CURRENT_TIME).sequence);
+          xcb_flush(connection);
         }
       }
       update_menubar_activations();
@@ -2395,11 +2394,14 @@ static HANDLE req_clipboard(GdkAtom type)
     s_clipboard_getstate=NULL;
 
     GdkDisplay *disp = gdk_window_get_display(h->m_oswindow);
-    if (WDL_NORMALLY(disp) &&
-        None == XGetSelectionOwner(gdk_x11_display_get_xdisplay(disp),
-                                   gdk_x11_atom_to_xatom_for_display(disp, GDK_SELECTION_CLIPBOARD)))
+    if (WDL_NORMALLY(disp))
     {
-      return NULL;
+      xcb_connection_t *connection = XGetXCBConnection(gdk_x11_display_get_xdisplay(disp));
+      xcb_get_selection_owner_reply_t *reply = xcb_get_selection_owner_reply(connection,
+          xcb_get_selection_owner(connection, gdk_x11_atom_to_xatom_for_display(disp, GDK_SELECTION_CLIPBOARD)), NULL);
+      const bool owned = reply && reply->owner != XCB_NONE;
+      free(reply);
+      if (!owned) return NULL;
     }
 
     gdk_selection_convert(h->m_oswindow,GDK_SELECTION_CLIPBOARD,type,GDK_CURRENT_TIME);
@@ -2599,6 +2601,7 @@ struct bridgeState {
   GdkWindow *w;
   Window native_w;
   Display *native_disp;
+  xcb_connection_t *connection;
   GdkWindow *cur_parent;
   Window cur_parent_xid;
   Window cur_parent_xid2; // first child in xid, if any, otherwise cur_parent_xid
@@ -2614,8 +2617,8 @@ struct bridgeState {
 static bridgeState *s_last_gl_ctx;
 
 static WDL_PtrList<bridgeState> filter_windows;
-bridgeState::~bridgeState() 
-{ 
+bridgeState::~bridgeState()
+{
   if (gl_ctx)
   {
     if (s_last_gl_ctx == this)
@@ -2629,8 +2632,8 @@ bridgeState::~bridgeState()
   }
   if (native_w && s_ddrop_forward_last_container == native_w)
     s_ddrop_forward_last_container = 0;
-  filter_windows.DeletePtr(this); 
-  if (w) 
+  filter_windows.DeletePtr(this);
+  if (w)
   {
     if (!need_reparent)
     {
@@ -2639,19 +2642,17 @@ bridgeState::~bridgeState()
       gdk_window_reparent(w,NULL,0,0);
     }
     g_object_unref(G_OBJECT(w));
-    XDestroyWindow(native_disp,native_w);
+    xcb_discard_reply(connection, xcb_destroy_window_checked(connection, native_w).sequence);
   }
 }
 
-static Window get_x11_first_child(Display *disp, Window xid)
+static xcb_window_t get_x11_first_child(xcb_connection_t *connection, xcb_window_t xid)
 {
-  Window root, par, *list=NULL;
-  unsigned int nlist=0;
-  if (!disp || !xid || !XQueryTree(disp,xid,&root,&par,&list, &nlist)) return xid;
-  Window ret = xid;
-  if (list && nlist>0) ret = list[0];
-  if (list) XFree(list);
-  return ret;
+  if (!connection || !xid) return xid;
+  xcb_query_tree_reply_t *tree = xcb_query_tree_reply(connection, xcb_query_tree(connection, xid), NULL);
+  xcb_window_t child = tree && xcb_query_tree_children_length(tree) ? xcb_query_tree_children(tree)[0] : xid;
+  free(tree);
+  return child;
 }
 
 bridgeState::bridgeState(bool needrep, GdkWindow *_w, Window _nw, Display *_disp, GdkWindow *_curpar, HWND _hwnd_child)
@@ -2661,11 +2662,12 @@ bridgeState::bridgeState(bool needrep, GdkWindow *_w, Window _nw, Display *_disp
   w=_w;
   native_w=_nw;
   native_disp=_disp;
+  connection=XGetXCBConnection(_disp);
   lastvis=false;
   need_reparent=needrep;
   cur_parent = _curpar;
   cur_parent_xid = _curpar ? GDK_WINDOW_XID(_curpar) : 0;
-  cur_parent_xid2 = get_x11_first_child(_disp, cur_parent_xid);
+  cur_parent_xid2 = get_x11_first_child(connection, cur_parent_xid);
   memset(&lastrect,0,sizeof(lastrect));
   filter_windows.Add(this);
 }
@@ -2696,38 +2698,28 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         GetClientRect(hwnd,&r);
         if (r.right>0 && r.bottom>0 && bs)
         {
-          Window root, par, *list=NULL;
-          unsigned int nlist=0;
           // if a plug-in created a window on a separate X11 connection, it might not be valid yet.
-          if (XQueryTree(bs->native_disp,bs->native_w,&root,&par,&list, &nlist))
+          xcb_window_t child = get_x11_first_child(bs->connection, bs->native_w);
+          if (child == bs->native_w) return 0;
+          xcb_size_hints_t hints = {};
+          if (xcb_icccm_get_wm_normal_hints_reply(bs->connection,
+              xcb_icccm_get_wm_normal_hints(bs->connection, child), &hints, NULL))
           {
-            if (!list || !nlist)
+            if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE)
             {
-              if (list) XFree(list);
-              return 0;
+              r.right = wdl_max(r.right, hints.min_width);
+              r.bottom = wdl_max(r.bottom, hints.min_height);
             }
-            XSizeHints *hints = XAllocSizeHints();
-            if (hints)
+            if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE)
             {
-              long hints_ret=0;
-              XGetWMNormalHints(bs->native_disp,list[0],hints,&hints_ret);
-
-              if (hints->flags&PMinSize)
-              {
-                if (r.right < hints->min_width) r.right = hints->min_width;
-                if (r.bottom < hints->min_height) r.bottom = hints->min_height;
-              }
-              if (hints->flags&PMaxSize)
-              {
-                if (hints->max_width > 0 && r.right > hints->max_width) r.right = hints->max_width;
-                if (hints->max_height > 0 && r.bottom > hints->max_height) r.bottom = hints->max_height;
-              }
-              XFree(hints);
+              if (hints.max_width > 0) r.right = wdl_min(r.right, hints.max_width);
+              if (hints.max_height > 0) r.bottom = wdl_min(r.bottom, hints.max_height);
             }
-
-            XResizeWindow(bs->native_disp,list[0],r.right,r.bottom);
-            XFree(list);
           }
+          const uint32_t size[] = { (uint32_t)r.right, (uint32_t)r.bottom };
+          xcb_discard_reply(bs->connection, xcb_configure_window_checked(bs->connection, child,
+              XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, size).sequence);
+          xcb_flush(bs->connection);
         }
         KillTimer(hwnd,wParam);
       }
@@ -2783,12 +2775,12 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             gint w=0,hh=0;
             gdk_window_get_geometry(bs->w,NULL,NULL,&w,&hh);
 #endif
-            if (w > bs->lastrect.right-bs->lastrect.left) 
+            if (w > bs->lastrect.right-bs->lastrect.left)
             {
               bs->lastrect.right = bs->lastrect.left + w;
               tr.right++; // workaround "bug" in GDK -- if bs->w was resized via Xlib, GDK won't resize it unless it thinks the size changed
             }
-            if (hh > bs->lastrect.bottom-bs->lastrect.top) 
+            if (hh > bs->lastrect.bottom-bs->lastrect.top)
             {
               bs->lastrect.bottom = bs->lastrect.top + hh;
               tr.bottom++; // workaround "bug" in GDK -- if bs->w was resized via Xlib, GDK won't resize it unless it thinks the size changed
@@ -2798,7 +2790,7 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
           if (h && h->m_oswindow != bs->cur_parent)
             bs->need_reparent = true;
 
-          if (h && (bs->need_reparent || (vis != bs->lastvis) || (vis&&memcmp(&tr,&bs->lastrect,sizeof(RECT))))) 
+          if (h && (bs->need_reparent || (vis != bs->lastvis) || (vis&&memcmp(&tr,&bs->lastrect,sizeof(RECT)))))
           {
             if (bs->lastvis && !vis)
             {
@@ -2814,7 +2806,7 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
               bs->cur_parent = h->m_oswindow;
               bs->cur_parent_xid = h->m_oswindow ? GDK_WINDOW_XID(h->m_oswindow) : 0;
-              bs->cur_parent_xid2 = get_x11_first_child(bs->native_disp, bs->cur_parent_xid);
+              bs->cur_parent_xid2 = get_x11_first_child(bs->connection, bs->cur_parent_xid);
               bs->need_reparent=false;
               if (vis && bs->lastvis) gdk_window_show(bs->w);
             }
@@ -2839,24 +2831,16 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         bridgeState *bs = (bridgeState*)hwnd->m_private_data;
         if (bs->native_disp && bs->native_w)
         {
-          Window root, par, *list=NULL;
-          unsigned int nlist=0;
           // if a plug-in created a window on a separate X11 connection, it might not be valid yet.
-          if (XQueryTree(bs->native_disp,bs->native_w,&root,&par,&list, &nlist))
+          xcb_window_t child = get_x11_first_child(bs->connection, bs->native_w);
+          if (child == bs->native_w) return 0;
+          xcb_get_geometry_reply_t *geometry = xcb_get_geometry_reply(bs->connection,
+              xcb_get_geometry(bs->connection, child), NULL);
+          if (geometry)
           {
-            if (!list || !nlist)
-            {
-              if (list) XFree(list);
-              return 0;
-            }
-            XWindowAttributes attr;
-            memset(&attr,0,sizeof(attr));
-            if (XGetWindowAttributes(bs->native_disp, list[0], &attr) && attr.width && attr.height)
-            {
-              *((int *)(INT_PTR)wParam) = attr.width;
-              *((int *)(INT_PTR)lParam) = attr.height;
-            }
-            XFree(list);
+            *((int *)(INT_PTR)wParam) = geometry->width;
+            *((int *)(INT_PTR)lParam) = geometry->height;
+            free(geometry);
           }
         }
       }
@@ -2869,32 +2853,33 @@ static LRESULT xbridgeProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 static void forward_x11_drag_message(int gdkmsg, GdkEventDND *gdkevent, Window new_target, Window container)
 {
   GdkDisplay *display = gdk_window_get_display(gdkevent->window);
-  Display *dpy = gdk_x11_display_get_xdisplay(display);
-  if (WDL_NOT_NORMALLY(!dpy)) return;
+  xcb_connection_t *connection = XGetXCBConnection(gdk_x11_display_get_xdisplay(display));
+  if (WDL_NOT_NORMALLY(!connection)) return;
 
   if (WDL_NOT_NORMALLY(!container)) return;
 
-  XClientMessageEvent xev;
-  memset(&xev, 0, sizeof(xev));
-  xev.type = ClientMessage;
+  xcb_client_message_event_t xev = {};
+  xev.response_type = XCB_CLIENT_MESSAGE;
   xev.window = new_target;
   xev.format = 32;
-  xev.data.l[0] = container;
+  xev.data.data32[0] = container;
 
   switch (gdkmsg)
   {
     case GDK_DRAG_ENTER:
       {
         // make sure our containerwindow is tagged XdndAware, in case the plug-in checks
-        Atom ver = 5;
-        XChangeProperty(dpy, container, XInternAtom(dpy,"XdndAware",false), XA_ATOM, 32, PropModeReplace, (unsigned char*)&ver, 1);
+        const uint32_t ver = 5;
+        xcb_change_property(connection, XCB_PROP_MODE_REPLACE, container,
+            gdk_x11_get_xatom_by_name_for_display(display, "XdndAware"), XCB_ATOM_ATOM, 32, 1, &ver);
       }
 
-      xev.message_type = XInternAtom(dpy, "XdndEnter", False);
-      xev.data.l[1] = (3 << 24); // protocol version 3
+      xev.type = gdk_x11_get_xatom_by_name_for_display(display, "XdndEnter");
+      xev.data.data32[1] = (3 << 24); // protocol version 3
       {
+        // mime types in 2/3/4, prioritizing any uri-list
+        WDL_TypedBuf<xcb_atom_t> types;
         GList *targets = gdk_drag_context_list_targets(gdkevent->context);
-        WDL_TypedBuf<Atom> types;
         for (int pass = 0; pass < 2; ++pass)
           for (GList *l = targets; l; l = l->next)
           {
@@ -2903,43 +2888,44 @@ static void forward_x11_drag_message(int gdkmsg, GdkEventDND *gdkevent, Window n
               types.Add(gdk_x11_atom_to_xatom_for_display(display, (GdkAtom)l->data));
             g_free(name);
           }
-        for (int i = 0; i < types.GetSize() && i < 3; ++i) xev.data.l[2+i] = types.Get()[i];
+        for (int i = 0; i < types.GetSize() && i < 3; ++i) xev.data.data32[2+i] = types.Get()[i];
         if (types.GetSize() > 3)
         {
-          xev.data.l[1] |= 1;
-          XChangeProperty(dpy, container, XInternAtom(dpy,"XdndTypeList",False), XA_ATOM,
-              32, PropModeReplace, (const unsigned char*)types.Get(), types.GetSize());
+          xev.data.data32[1] |= 1;
+          xcb_change_property(connection, XCB_PROP_MODE_REPLACE, container,
+              gdk_x11_get_xatom_by_name_for_display(display, "XdndTypeList"),
+              XCB_ATOM_ATOM, 32, types.GetSize(), types.Get());
         }
       }
     break;
     case GDK_DRAG_LEAVE:
-      xev.message_type = XInternAtom(dpy, "XdndLeave", False);
+      xev.type = gdk_x11_get_xatom_by_name_for_display(display, "XdndLeave");
     break;
     case GDK_DRAG_MOTION:
-      xev.message_type = XInternAtom(dpy, "XdndPosition", False);
-      xev.data.l[1] = 0;
-      xev.data.l[2] = ((int)gdkevent->x_root << 16) | ((int)gdkevent->y_root & 0xFFFF);
-      xev.data.l[3] = gdkevent->time;
+      xev.type = gdk_x11_get_xatom_by_name_for_display(display, "XdndPosition");
+      xev.data.data32[1] = 0;
+      xev.data.data32[2] = ((int)gdkevent->x_root << 16) | ((int)gdkevent->y_root & 0xFFFF);
+      xev.data.data32[3] = gdkevent->time;
       switch (gdk_drag_context_get_suggested_action(gdkevent->context))
       {
-        case GDK_ACTION_MOVE: xev.data.l[4] = XInternAtom(dpy, "XdndActionMove", False); break;
-        case GDK_ACTION_LINK: xev.data.l[4] = XInternAtom(dpy, "XdndActionLink", False); break;
-        case GDK_ACTION_PRIVATE: xev.data.l[4] = XInternAtom(dpy, "XdndActionPrivate", False); break;
-        case GDK_ACTION_ASK: xev.data.l[4] = XInternAtom(dpy, "XdndActionAsk", False); break;
-        default: xev.data.l[4] = XInternAtom(dpy, "XdndActionCopy", False); break;
+        case GDK_ACTION_MOVE: xev.data.data32[4] = gdk_x11_get_xatom_by_name_for_display(display, "XdndActionMove"); break;
+        case GDK_ACTION_LINK: xev.data.data32[4] = gdk_x11_get_xatom_by_name_for_display(display, "XdndActionLink"); break;
+        case GDK_ACTION_PRIVATE: xev.data.data32[4] = gdk_x11_get_xatom_by_name_for_display(display, "XdndActionPrivate"); break;
+        case GDK_ACTION_ASK: xev.data.data32[4] = gdk_x11_get_xatom_by_name_for_display(display, "XdndActionAsk"); break;
+        default: xev.data.data32[4] = gdk_x11_get_xatom_by_name_for_display(display, "XdndActionCopy"); break;
       }
     break;
     case GDK_DROP_START:
-      xev.message_type = XInternAtom(dpy, "XdndDrop", False);
-      xev.data.l[2] = gdkevent->time;
+      xev.type = gdk_x11_get_xatom_by_name_for_display(display, "XdndDrop");
+      xev.data.data32[2] = gdkevent->time;
     break;
     default:
       WDL_ASSERT(false);
     return;
   }
 
-  XSendEvent(dpy, new_target, False, NoEventMask, (XEvent*)&xev);
-  XFlush(dpy);
+  xcb_discard_reply(connection, xcb_send_event_checked(connection, false, new_target, 0, (const char*)&xev).sequence);
+  xcb_flush(connection);
 }
 
 
@@ -2980,25 +2966,22 @@ static bool validate_top_hwnd(HWND hwnd)
 static bool validate_bridged_xw_from_tlhwnd(HWND hwnd, Window xw)
 {
   if (WDL_NOT_NORMALLY(!hwnd || !hwnd->m_oswindow || !xw)) return false;
-  Display *dpy = gdk_x11_display_get_xdisplay(gdk_window_get_display(hwnd->m_oswindow));
+
   for (int x = 0; x < filter_windows.GetSize(); x ++)
   {
     bridgeState *bs = filter_windows.Get(x);
     if (bs->cur_parent != hwnd->m_oswindow) continue;
 
-    Window root, par, *list=NULL;
-    unsigned int nlist=0;
-    if (XQueryTree(dpy,bs->native_w,&root,&par,&list, &nlist) && list)
+    xcb_query_tree_reply_t *tree = xcb_query_tree_reply(bs->connection,
+        xcb_query_tree(bs->connection, bs->native_w), NULL);
+    if (tree)
     {
-      for (unsigned int i = 0; i < nlist; i ++)
-      {
-        if (list[i] == xw)
-        {
-          XFree(list);
-          return true;
-        }
-      }
-      XFree(list);
+      const xcb_window_t *children = xcb_query_tree_children(tree);
+      bool found = false;
+      for (int i = 0; i < xcb_query_tree_children_length(tree); ++i)
+        if (children[i] == xw) { found = true; break; }
+      free(tree);
+      if (found) return true;
     }
   }
   return false;
@@ -3008,7 +2991,7 @@ static Window hit_test_bridged_xw(HWND hwnd, int xpos, int ypos, Window *contain
 {
   if (WDL_NOT_NORMALLY(!hwnd || !hwnd->m_oswindow)) return false;
   POINT pt = { xpos, ypos };
-  Display *dpy = gdk_x11_display_get_xdisplay(gdk_window_get_display(hwnd->m_oswindow));
+  GdkDisplay *display = gdk_window_get_display(hwnd->m_oswindow);
   Window new_target = 0;
   for (int x = 0; !new_target && x < filter_windows.GetSize(); x ++)
   {
@@ -3020,41 +3003,33 @@ static Window hit_test_bridged_xw(HWND hwnd, int xpos, int ypos, Window *contain
     GetWindowRect(bs->hwnd_child,&r);
     if (!PtInRect(&r,pt)) continue;
 
-    Window root, par, *list=NULL;
-    unsigned int nlist=0;
-    if (XQueryTree(dpy,bs->native_w,&root,&par,&list, &nlist) && list)
+    xcb_query_tree_reply_t *tree = xcb_query_tree_reply(bs->connection,
+        xcb_query_tree(bs->connection, bs->native_w), NULL);
+    if (!tree) continue;
+    const xcb_window_t *children = xcb_query_tree_children(tree);
+    for (int i = 0; !new_target && i < xcb_query_tree_children_length(tree); ++i)
     {
-      for (unsigned int i = 0; !new_target && i < nlist; i ++)
+      int lx = 0, ly = 0;
+      if (!swell_xcb_translate(bs->connection, tree->root, children[i], xpos, ypos, &lx, &ly)) continue;
+      xcb_get_geometry_reply_t *geometry = xcb_get_geometry_reply(bs->connection,
+          xcb_get_geometry(bs->connection, children[i]), NULL);
+      const bool inside = geometry && lx >= 0 && ly >= 0 && lx < geometry->width && ly < geometry->height;
+      free(geometry);
+      if (!inside) continue;
+
+      // make sure this window can do XdndAware
+      xcb_get_property_reply_t *aware = xcb_get_property_reply(bs->connection,
+          xcb_get_property(bs->connection, false, children[i],
+              gdk_x11_get_xatom_by_name_for_display(display, "XdndAware"), XCB_ATOM_ATOM, 0, 1), NULL);
+      if (aware && aware->format == 32 && aware->value_len)
       {
-        int lx = 0, ly = 0;
-        Window cr = 0;
-        if (!XTranslateCoordinates(dpy, root, list[i], xpos, ypos, &lx, &ly, &cr)) continue;
-
-        XWindowAttributes xwa;
-        memset(&xwa,0,sizeof(xwa));
-        if (XGetWindowAttributes(dpy, list[i], &xwa) && lx >= 0 && ly >= 0 && lx < xwa.width && ly < xwa.height)
-        {
-          // make sure this window can do XdndAware
-          Atom type;
-          gint format;
-          gulong nitems=0, bytes_after;
-          guchar *data = NULL;
-
-          if (XGetWindowProperty(dpy, list[i], XInternAtom(dpy,"XdndAware",False), 0, 1, false, XA_ATOM, &type, &format, &nitems, &bytes_after, &data) == Success && nitems > 0)
-          {
-            if (type == XA_ATOM)
-            {
-              // this would be where to check for XdndProxy and resolve it.
-              new_target = list[i];
-              *containerOut = bs->native_w;
-            }
-            if (data) XFree(data);
-          }
-
-        }
+        // this would be where to check for XdndProxy and resolve it.
+        new_target = children[i];
+        *containerOut = bs->native_w;
       }
-      XFree(list);
+      free(aware);
     }
+    free(tree);
   }
   return new_target;
 }
@@ -3062,18 +3037,18 @@ static Window hit_test_bridged_xw(HWND hwnd, int xpos, int ypos, Window *contain
 
 static void run_drag_finish_abort()
 {
-  Display *disp = gdk_x11_display_get_xdisplay(gdk_window_get_display(s_ddrop_forward_last_hwnd->m_oswindow));
-  XClientMessageEvent xclient;
-  memset(&xclient,0,sizeof(xclient));
-  xclient.type = ClientMessage;
-  xclient.window = s_ddrop_forward_last_source;
-  xclient.send_event = True;
-  xclient.message_type = XInternAtom(disp, "XdndFinished", False);
-  xclient.format = 32;
-  xclient.data.l[0] = GDK_WINDOW_XID(s_ddrop_forward_last_hwnd->m_oswindow);
-
-  XSendEvent(disp, s_ddrop_forward_last_source, False, NoEventMask, (XEvent*)&xclient);
-  XFlush(disp);
+  GdkWindow *window = s_ddrop_forward_last_hwnd->m_oswindow;
+  GdkDisplay *display = gdk_window_get_display(window);
+  xcb_connection_t *connection = XGetXCBConnection(gdk_x11_display_get_xdisplay(display));
+  xcb_client_message_event_t event = {};
+  event.response_type = XCB_CLIENT_MESSAGE;
+  event.window = s_ddrop_forward_last_source;
+  event.type = gdk_x11_get_xatom_by_name_for_display(display, "XdndFinished");
+  event.format = 32;
+  event.data.data32[0] = GDK_WINDOW_XID(window);
+  xcb_discard_reply(connection, xcb_send_event_checked(connection, false,
+      s_ddrop_forward_last_source, 0, (const char*)&event).sequence);
+  xcb_flush(connection);
 }
 
 static bool OnDragEventDelegate(GdkEvent *evt)
@@ -3270,13 +3245,11 @@ static bool want_key_embed_redirect(Display *disp, Window scan_id, Window *new_d
           if (handled || !valid) return false;
         }
 
-        Window root, par, *list=NULL;
-        unsigned int nlist=0;
-        if (XQueryTree(bs->native_disp,bs->native_w,&root,&par,&list, &nlist) && list)
+        xcb_window_t child = get_x11_first_child(bs->connection, bs->native_w);
+        if (child != bs->native_w)
         {
-          if (nlist) *new_dest = list[0];
-          XFree(list);
-          if (nlist) return true;
+          *new_dest = child;
+          return true;
         }
       }
     }
@@ -3300,11 +3273,21 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
         if (!xevent->xany.send_event &&
             want_key_embed_redirect(disp,xevent->xkey.window, &dest, xevent->xkey.keycode, xevent->xkey.state))
         {
-          XEvent k;
-          memset(&k,0,sizeof(k));
-          k.xkey = xevent->xkey;
-          k.xkey.window = dest;
-          XSendEvent(disp, dest, False, NoEventMask, &k);
+          const XKeyEvent &src = xevent->xkey;
+          xcb_key_press_event_t k = {};
+          k.response_type = src.type;
+          k.event = dest;
+          k.root = src.root;
+          k.child = src.subwindow;
+          k.time = src.time;
+          k.event_x = src.x; k.event_y = src.y;
+          k.root_x = src.x_root; k.root_y = src.y_root;
+          k.state = src.state;
+          k.detail = src.keycode;
+          k.same_screen = src.same_screen;
+          xcb_connection_t *connection = XGetXCBConnection(disp);
+          xcb_discard_reply(connection, xcb_send_event_checked(connection, false, dest, 0, (const char*)&k).sequence);
+          xcb_flush(connection);
           return GDK_FILTER_REMOVE;
         }
         else if (xevent->xany.send_event)
@@ -3351,9 +3334,9 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
     case GenericEvent:
       // XInput2
       {
-        int opcode, event_base, error_base;
-        if (!XQueryExtension(xevent->xany.display, "XInputExtension", &opcode, &event_base, &error_base) ||
-            xevent->xcookie.extension != opcode) break;
+        const xcb_query_extension_reply_t *xi = xcb_get_extension_data(
+            XGetXCBConnection(xevent->xany.display), &xcb_input_id);
+        if (!xi || !xi->present || xevent->xcookie.extension != xi->major_opcode) break;
         XIDeviceEvent *xievent = (XIDeviceEvent*)xevent->xcookie.data;
         if (!xevent->xany.send_event &&
             xievent &&
@@ -3363,24 +3346,20 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
           Display *disp = xevent->xany.display;
           if (want_key_embed_redirect(disp,xievent->event, &dest, xievent->detail, xievent->mods.effective))
           {
-            XEvent k;
-            if (xievent->evtype == XI_KeyPress) k.xkey.type = KeyPress;
-            else k.xkey.type = KeyRelease;
-            k.xkey.serial = xievent->serial;
-            k.xkey.send_event = xievent->send_event;
-            k.xkey.display = disp;
-            k.xkey.window = dest;
-            k.xkey.root = xievent->root;
-            k.xkey.subwindow = xievent->child;
-            k.xkey.time = xievent->time;
-            k.xkey.x = xievent->event_x;
-            k.xkey.y = xievent->event_y;
-            k.xkey.x_root = xievent->root_x;
-            k.xkey.y_root = xievent->root_y;
-            k.xkey.state = xievent->mods.effective;
-            k.xkey.keycode = xievent->detail;
-            k.xkey.same_screen = 1;
-            XSendEvent(disp, dest, False, NoEventMask, &k);
+            xcb_key_press_event_t k = {};
+            k.response_type = xievent->evtype == XI_KeyPress ? XCB_KEY_PRESS : XCB_KEY_RELEASE;
+            k.event = dest;
+            k.root = xievent->root;
+            k.child = xievent->child;
+            k.time = xievent->time;
+            k.event_x = xievent->event_x; k.event_y = xievent->event_y;
+            k.root_x = xievent->root_x; k.root_y = xievent->root_y;
+            k.state = xievent->mods.effective;
+            k.detail = xievent->detail;
+            k.same_screen = true;
+            xcb_connection_t *connection = XGetXCBConnection(disp);
+            xcb_discard_reply(connection, xcb_send_event_checked(connection, false, dest, 0, (const char*)&k).sequence);
+            xcb_flush(connection);
             return GDK_FILTER_REMOVE;
           }
         }
@@ -3418,7 +3397,7 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
           {
             //gint w=0,hh=0;
             //gdk_window_get_geometry(bs->w,NULL,NULL,&w,&hh);
-            XMapWindow(bs->native_disp, xevent->xcreatewindow.window);
+            xcb_discard_reply(bs->connection, xcb_map_window_checked(bs->connection, xevent->xcreatewindow.window).sequence);
             //XResizeWindow(bs->native_disp, xevent->xcreatewindow.window,w,hh);
             return GDK_FILTER_REMOVE;
           }
@@ -3432,22 +3411,31 @@ static GdkFilterReturn filterCreateShowProc(GdkXEvent *xev, GdkEvent *event, gpo
           s_ddrop_forward_last_source &&
           (GetTickCount()-s_ddrop_forward_last_source_time) < 10000)
       {
-        Display *disp = xevent->xany.display;
-        const bool fin = xevent->xclient.message_type == XInternAtom(disp, "XdndFinished", False);
+        if (!validate_top_hwnd(s_ddrop_forward_last_hwnd) || !s_ddrop_forward_last_hwnd->m_oswindow)
+        {
+          s_ddrop_forward_last_hwnd = NULL;
+          s_ddrop_forward_last_container = s_ddrop_forward_last_source = 0;
+          s_ddrop_forward_last_target = 0;
+          s_ddrop_forward_last_has_dropped = false;
+          break;
+        }
+        GdkDisplay *display = gdk_window_get_display(s_ddrop_forward_last_hwnd->m_oswindow);
+        xcb_connection_t *connection = XGetXCBConnection(xevent->xany.display);
+        const bool fin = xevent->xclient.message_type == gdk_x11_get_xatom_by_name_for_display(display, "XdndFinished");
         bool eat = false;
-        if ((fin || xevent->xclient.message_type == XInternAtom(disp, "XdndStatus", False)) &&
-            validate_top_hwnd(s_ddrop_forward_last_hwnd) && s_ddrop_forward_last_hwnd->m_oswindow)
+        if (fin || xevent->xclient.message_type == gdk_x11_get_xatom_by_name_for_display(display, "XdndStatus"))
         {
           // these messages need to get passed back to the drag source with our top-level window as the target
-          XClientMessageEvent xclient;
-          memcpy(&xclient,xevent,sizeof(xclient));
-          xclient.serial = 0;
-          xclient.send_event = True;
-          xclient.window = s_ddrop_forward_last_source;
-          xclient.data.l[0] = GDK_WINDOW_XID(s_ddrop_forward_last_hwnd->m_oswindow);
-
-          XSendEvent(disp, s_ddrop_forward_last_source, False, NoEventMask, (XEvent*)&xclient);
-          XFlush(disp);
+          xcb_client_message_event_t reply = {};
+          reply.response_type = XCB_CLIENT_MESSAGE;
+          reply.window = s_ddrop_forward_last_source;
+          reply.type = xevent->xclient.message_type;
+          reply.format = 32;
+          for (int i = 0; i < 5; ++i) reply.data.data32[i] = xevent->xclient.data.l[i];
+          reply.data.data32[0] = GDK_WINDOW_XID(s_ddrop_forward_last_hwnd->m_oswindow);
+          xcb_discard_reply(connection, xcb_send_event_checked(connection, false,
+              s_ddrop_forward_last_source, 0, (const char*)&reply).sequence);
+          xcb_flush(connection);
           eat = true;
         }
         if (fin)
@@ -3469,7 +3457,6 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
   HWND hwnd = NULL;
   *wref = NULL;
   if (!swell_initwindowsys()) return NULL;
-
   GdkWindow *ospar = NULL;
   HWND hpar = viewpar;
   while (hpar)
@@ -3488,10 +3475,13 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
   }
 
   Display *disp = gdk_x11_display_get_xdisplay(gdk_window_get_display(ospar));
-  Window w = XCreateWindow(disp,GDK_WINDOW_XID(ospar),0,0,
-      wdl_max(r->right-r->left,1),
-      wdl_max(r->bottom-r->top,1),
-      0,CopyFromParent, InputOutput, CopyFromParent, 0, NULL);
+  xcb_connection_t *connection = XGetXCBConnection(disp);
+  xcb_window_t w = xcb_generate_id(connection);
+  xcb_generic_error_t *error = xcb_request_check(connection,
+      xcb_create_window_checked(connection, XCB_COPY_FROM_PARENT, w, GDK_WINDOW_XID(ospar), 0, 0,
+          wdl_max(r->right-r->left,1), wdl_max(r->bottom-r->top,1), 0,
+          XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, 0, NULL));
+  if (error) { free(error); w = XCB_NONE; }
   GdkWindow *gdkw = w ? gdk_x11_window_foreign_new_for_display(gdk_display_get_default(),w) : NULL;
 
   hwnd = new HWND__(viewpar,0,r,NULL, true, xbridgeProc);
@@ -3500,9 +3490,12 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
   hwnd->m_private_data = (INT_PTR) bs;
   if (gdkw)
   {
-    *wref = (void *) w;
+    *wref = (void *)(uintptr_t)w;
 
-    XSelectInput(disp, w, KeyPress | KeyRelease | StructureNotifyMask | SubstructureNotifyMask);
+    const uint32_t events = XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_KEY_RELEASE |
+                            XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY;
+    xcb_change_window_attributes(connection, w, XCB_CW_EVENT_MASK, &events);
+    xcb_flush(connection);
 
     static bool filt_add;
     if (!filt_add)
@@ -3775,10 +3768,10 @@ void SWELL_SetCursor(HCURSOR curs)
 #endif
         if (disp && wn)
         {
-          if (curs)
-            XIDefineCursor(disp,devid,wn, gdk_x11_cursor_get_xcursor((GdkCursor*)curs));
-          else
-            XIUndefineCursor(disp,devid,wn);
+          xcb_connection_t *connection = XGetXCBConnection(disp);
+          xcb_discard_reply(connection, xcb_input_xi_change_cursor_checked(connection,
+              wn, curs ? gdk_x11_cursor_get_xcursor((GdkCursor*)curs) : XCB_NONE, devid).sequence);
+          xcb_flush(connection);
         }
       }
     }
