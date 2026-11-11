@@ -21,7 +21,7 @@
 #ifndef _SWELL_INTERNAL_H_
 #define _SWELL_INTERNAL_H_
 
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
 #define SWELL_SUPPORT_IME
 #endif
 
@@ -1002,6 +1002,7 @@ struct HDC__ {
 HWND DialogBoxIsActive(void);
 bool DestroyPopupMenus(void);
 bool PopupMenuIsActive(void);
+bool swell_menu_get_anchor(HWND hwnd, RECT *rect);
 HWND ChildWindowFromPoint(HWND h, POINT p);
 HWND GetFocusIncludeMenus();
 
@@ -1014,6 +1015,10 @@ void swell_on_toplevel_raise(SWELL_OSWINDOW wnd); // called by swell-generic-gdk
 HWND swell_oswindow_to_hwnd(SWELL_OSWINDOW w);
 SWELL_OSWINDOW swell_oswindow_from_hwnd(HWND hwnd);
 void swell_oswindow_focus(HWND hwnd);
+void swell_oswindow_begin_drag(HWND source);
+bool swell_oswindow_from_point(POINT point, HWND *window);
+bool swell_oswindow_can_reuse();
+void swell_oswindow_end_modal(HWND hwnd);
 void swell_oswindow_update_style(HWND hwnd, LONG oldstyle);
 void swell_oswindow_update_enable(HWND hwnd);
 void swell_oswindow_update_text(HWND hwnd);

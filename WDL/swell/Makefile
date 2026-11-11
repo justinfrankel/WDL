@@ -120,6 +120,19 @@ ifndef NOGDK
       CFLAGS += -DSWELL_PRELOAD="libgdk-x11-2.0.so.0"
     endif
   else
+    ifdef WAYLAND
+      WAYLAND_PACKAGES := 'wayland-client >= 1.22' wayland-cursor wayland-egl xkbcommon 'glib-2.0 >= 2.68' gio-2.0 gio-unix-2.0 \
+        cairo libdecor-0 epoxy egl xcb-keysyms xcb-randr xcb-damage \
+        xcb-shape xcb-shm xcb-dri3 xcb-sync xcb-composite xcb-ewmh xcb-xtest \
+        xcb-xfixes xcb-xkb xcb-image xcb-renderutil xcb-res libdrm
+      CFLAGS += -DSWELL_TARGET_WAYLAND $(shell $(PKG_CONFIG) --cflags $(WAYLAND_PACKAGES))
+      LINKEXTRA += $(shell $(PKG_CONFIG) --libs $(WAYLAND_PACKAGES))
+      SWELL_OBJS += swell-generic-wayland.o swell-xwayland-bridge.o
+      WAYLAND_SCANNER ?= wayland-scanner
+      WAYLAND_PROTOCOLS_DIR := $(shell $(PKG_CONFIG) --variable=pkgdatadir wayland-protocols)
+      WAYLAND_PROTOCOLS := xdg-shell text-input-unstable-v3 xdg-activation-v1 viewporter xdg-output-unstable-v1 cursor-shape-v1 tablet-unstable-v2
+      SWELL_OBJS += $(addsuffix -protocol.o,$(WAYLAND_PROTOCOLS))
+    endif
     ifndef SWELL_GDK_ONLY
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gtk+-3.0) -DSWELL_SUPPORT_GTK
     else
@@ -187,4 +200,26 @@ libSwell.colortheme: swell-gdi-generic.cpp $(SWELL_HEADERS)
 	./make-theme > libSwell.colortheme
 
 clean: 
-	-rm -f -- $(OBJS) libSwell$(DLL_EXT) make-theme libSwell.colortheme
+	-rm -f -- $(OBJS) libSwell$(DLL_EXT) make-theme libSwell.colortheme $(addsuffix -client-protocol.h,$(WAYLAND_PROTOCOLS)) $(addsuffix -protocol.c,$(WAYLAND_PROTOCOLS))
+
+ifdef WAYLAND
+ifndef NOGDK
+ifndef GDK2
+swell-generic-wayland.o swell-xwayland-bridge.o: CXXFLAGS += -std=c++17
+swell-generic-wayland.o swell-xwayland-bridge.o: $(SWELL_HEADERS) swell-wayland.h swell-xwayland-bridge.h $(addsuffix -client-protocol.h,$(WAYLAND_PROTOCOLS))
+xdg-shell-client-protocol.h xdg-shell-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/stable/xdg-shell/xdg-shell.xml
+text-input-unstable-v3-client-protocol.h text-input-unstable-v3-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/unstable/text-input/text-input-unstable-v3.xml
+xdg-activation-v1-client-protocol.h xdg-activation-v1-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/staging/xdg-activation/xdg-activation-v1.xml
+viewporter-client-protocol.h viewporter-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/stable/viewporter/viewporter.xml
+xdg-output-unstable-v1-client-protocol.h xdg-output-unstable-v1-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/unstable/xdg-output/xdg-output-unstable-v1.xml
+cursor-shape-v1-client-protocol.h cursor-shape-v1-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/staging/cursor-shape/cursor-shape-v1.xml
+tablet-unstable-v2-client-protocol.h tablet-unstable-v2-protocol.c: $(WAYLAND_PROTOCOLS_DIR)/unstable/tablet/tablet-unstable-v2.xml
+%-client-protocol.h:
+	$(WAYLAND_SCANNER) client-header $< $@
+%-protocol.c:
+	$(WAYLAND_SCANNER) private-code $< $@
+%-protocol.o: %-protocol.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+endif
+endif
+endif

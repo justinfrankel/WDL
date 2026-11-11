@@ -123,7 +123,7 @@ void EndDialog(HWND wnd, int ret)
     void RecurseDestroyWindow(HWND);
     SendMessage(wnd,WM_DESTROY,0,0);
     #ifndef SWELL_NO_SPARE_MODALDLG
-      if (wnd->m_oswindow && wnd->m_visible)
+      if (wnd->m_oswindow && wnd->m_visible && swell_oswindow_can_reuse())
       {
         swell_dlg_destroyspare();
         s_spare_rect = wnd->m_position;
@@ -187,7 +187,7 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
     modalDlgRet r = { hwnd,false, -1 };
     s_modalDialogs.Add(&r);
 
-    if (s_spare && s_spare_style == hwnd->m_style)
+    if (s_spare && s_spare_style == hwnd->m_style && swell_oswindow_can_reuse())
     {
       if (s_spare_timer) 
       {
@@ -253,6 +253,7 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
       Sleep(10);
     }
     ret=r.ret;
+    swell_oswindow_end_modal(hwnd);
     s_modalDialogs.DeletePtr(&r);
 
     a = SWELL_topwindows;

@@ -246,7 +246,7 @@ static void on_activate(guint32 ftime)
   update_menubar_activations();
 }
 
-void swell_oswindow_reactivate_app_gdk(void)
+void swell_oswindow_reactivate_app_gdk(const char *)
 {
   if (swell_app_is_inactive)
   {
@@ -414,7 +414,7 @@ void swell_recalcMinMaxInfo_gdk(HWND hwnd)
   gdk_window_set_geometry_hints((GdkWindow *)hwnd->m_oswindow,&h,(GdkWindowHints) ((hwnd->m_has_had_position ? GDK_HINT_POS : 0) | GDK_HINT_MIN_SIZE | GDK_HINT_MAX_SIZE));
 }
 
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
 static gboolean (*swell_gtk_init_check)(int *argc, char ***argv);
 static void (*swell_gtk_main_do_event)(GdkEvent *);
 #endif
@@ -517,10 +517,34 @@ void swell_oswindow_ime_update_gdk(HWND, HWND, const RECT *, const char *, int, 
 
 #endif
 
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
 bool SWELL_load_gtk_gdk(void)
 {
-  if (SWELL_gdk_active != 1) return SWELL_gdk_active == 2;
+  if (SWELL_gdk_active != 1 && (!swell_platform_is_wayland() || SWELL_gdk_active)) return SWELL_gdk_active == 2;
+
+#ifdef SWELL_TARGET_WAYLAND
+  if (swell_platform_is_wayland())
+  {
+    const char *name = getenv("DISPLAY");
+    GdkDisplay *display = gdk_display_get_default();
+    if (!name || !*name) return false;
+    SWELL_gdk_active = 3;
+    if (!display || !GDK_IS_X11_DISPLAY(display) || strcmp(gdk_display_get_name(display), name))
+    {
+      XInitThreads();
+      void (*allowed_backends)(const char *);
+      *(void **)&allowed_backends = dlsym(RTLD_DEFAULT, "gdk_set_allowed_backends");
+      if (allowed_backends) allowed_backends("x11");
+      char *backend = g_strdup(getenv("GDK_BACKEND"));
+      setenv("GDK_BACKEND", "x11", 1);
+      display = gdk_display_open(name);
+      if (backend) { setenv("GDK_BACKEND", backend, 1); g_free(backend); }
+      else unsetenv("GDK_BACKEND");
+      if (!display) { SWELL_gdk_active = 0; return false; }
+      gdk_display_manager_set_default_display(gdk_display_manager_get(), display);
+    }
+  }
+#endif
 
   if (dlopen("libgtk-3.so.0",RTLD_NOW|RTLD_GLOBAL) || dlopen("libgtk+-3.so.0",RTLD_NOW|RTLD_GLOBAL))
   {
@@ -555,7 +579,7 @@ bool SWELL_load_gtk_gdk(void)
       printf("swell-generic-gdk: GTK+ requested but initialization failed.\n");
     else
       printf("swell-generic-gdk: initialized GTK+ on request.\n");
-    gdk_event_handler_set(swell_gdkEventHandler,NULL,NULL);
+    if (!swell_platform_is_wayland()) gdk_event_handler_set(swell_gdkEventHandler,NULL,NULL);
   }
   else
   {
@@ -2161,7 +2185,7 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
           //printf("msg: %d\n",evt->type);
     break;
   }
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
   if (swell_gtk_main_do_event)
     swell_gtk_main_do_event(evt);
 #endif
@@ -2171,6 +2195,10 @@ static void swell_gdkEventHandler(GdkEvent *evt, gpointer data)
 static void run_drag_finish_abort();
 static bool validate_top_hwnd(HWND hwnd);
 
+void swell_oswindow_begin_drag_gdk(HWND) { }
+bool swell_oswindow_from_point_gdk(POINT, HWND *) { return false; }
+bool swell_oswindow_can_reuse_gdk() { return true; }
+void swell_oswindow_end_modal_gdk(HWND) { }
 
 void SWELL_RunEvents_gdk()
 {
@@ -4133,7 +4161,6 @@ void SWELL_SetViewGL_gdk(HWND h, char wantGL)
     }
   }
 }
-
 
 bool SWELL_GetViewGL_gdk(HWND h)
 {
