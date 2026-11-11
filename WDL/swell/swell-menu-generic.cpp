@@ -527,6 +527,7 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         hwnd->m_extra[0] = 0; // Y scroll offset
         hwnd->m_extra[1] = 0; // is currently autoscrolling to sel_vis
         hwnd->m_extra[2] = 0; // remaining items out of view, if any
+        hwnd->m_extra[3] = 0;
       }
 
       ShowWindow(hwnd,SW_SHOW);
@@ -862,7 +863,9 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
         const bool ymatch = curM.y >= tr.bottom-scroll_margin && curM.y < tr.bottom+scroll_margin;
         if (!xmatch || !ymatch) // if mouse is over scroll area, ignore
         {
-          int amt = ((short)HIWORD(wParam))/-40;
+          hwnd->m_extra[3] += (short)HIWORD(wParam);
+          int amt = (int) (hwnd->m_extra[3] / -40);
+          hwnd->m_extra[3] %= 40;
           const int xFirst = wdl_max(hwnd->m_extra[0],0);
           if (amt > hwnd->m_extra[2]) amt = (int) hwnd->m_extra[2];
           if (amt < 0 ? xFirst > 0 : amt > 0)

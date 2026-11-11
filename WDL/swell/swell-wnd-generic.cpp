@@ -1860,6 +1860,7 @@ struct __SWELL_editControlState
     sel1=sel2=-1; 
     cursor_pos=0;
     scroll_x=scroll_y=0;
+    wheel_remainder=0;
     max_height=0;
     max_width=0;
     cache_linelen_strlen = cache_linelen_w = 0;
@@ -1870,7 +1871,7 @@ struct __SWELL_editControlState
   int cursor_pos, sel1,sel2; // in character pos (*not* bytepos)
   int cursor_state;
   int cursor_timer;
-  int scroll_x, scroll_y;
+  int scroll_x, scroll_y, wheel_remainder;
   int max_height; // only used in multiline
   int max_width; 
 
@@ -2668,7 +2669,9 @@ static LRESULT WINAPI editWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         const int viewsz = r.bottom;
         const int totalsz=es->max_height + g_swell_ctheme.scrollbar_width;
 
-        const int amt = ((short)HIWORD(wParam))/-2;
+        es->wheel_remainder += (short)HIWORD(wParam);
+        const int amt = es->wheel_remainder / -2;
+        es->wheel_remainder %= 2;
 
         const int oldscroll = es->scroll_y;
         es->scroll_y += amt;
@@ -3914,11 +3917,16 @@ popupMenu:
         int amt = ((short)HIWORD(wParam));
         if (GetAsyncKeyState(VK_SHIFT)&0x8000)
         {
+          s->editstate.wheel_remainder = 0;
           if (amt<0) amt=-1;
           else if (amt>0) amt=1;
         }
         else
-          amt /= 120;
+        {
+          s->editstate.wheel_remainder += amt;
+          amt = s->editstate.wheel_remainder / 120;
+          s->editstate.wheel_remainder %= 120;
+        }
 
         if (amt)
         {
@@ -4045,6 +4053,7 @@ struct listViewState
     m_owner_data_size = ownerData ? 0 : -1;
     m_last_row_height = 0;
     m_scroll_x=m_scroll_y=0;
+    m_wheel_remainder[0]=m_wheel_remainder[1]=0;
     m_capmode_state=LISTVIEW_CAP_NONE;
     m_capmode_data1=0;
     m_capmode_data2=0;
@@ -4110,6 +4119,7 @@ struct listViewState
 
   ListViewCapMode m_capmode_state;
   int m_scroll_x,m_scroll_y, m_capmode_data1,m_capmode_data2;
+  int m_wheel_remainder[2];
   int m_extended_style;
 
   int m_fastclick_mask;
@@ -4312,10 +4322,15 @@ static LRESULT listViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
       if ((GetAsyncKeyState(VK_CONTROL)&0x8000) || (GetAsyncKeyState(VK_MENU)&0x8000)) break; // pass modified mousewheel to parent
 
       {
-        const int amt = ((short)HIWORD(wParam))/40;
-        if (amt && lvs)
+        if (!lvs) return 1;
+        const bool horizontal = ((GetAsyncKeyState(VK_SHIFT) ^ (msg==WM_MOUSEHWHEEL?0x8000:0))&0x8000)!=0;
+        int &remainder = lvs->m_wheel_remainder[horizontal ? 1 : 0];
+        remainder += (short)HIWORD(wParam);
+        const int amt = remainder / 40;
+        remainder %= 40;
+        if (amt)
         {
-          if ((GetAsyncKeyState(VK_SHIFT) ^ (msg==WM_MOUSEHWHEEL?0x8000:0))&0x8000)
+          if (horizontal)
           {
             const int oldscroll = lvs->m_scroll_x;
             lvs->m_scroll_x -= amt*4;
@@ -5524,7 +5539,7 @@ struct treeViewState
   { 
     m_sel=NULL;
     m_last_row_height=0;
-    m_scroll_x=m_scroll_y=m_capmode=0;
+    m_scroll_x=m_scroll_y=m_capmode=m_wheel_remainder=0;
     m_root.m_state = TVIS_EXPANDED;
     m_root.m_haschildren=true;
   }
@@ -5799,7 +5814,7 @@ next_item_in_parent:
   HTREEITEM m_sel;
   int m_last_row_height;
 
-  int m_scroll_x,m_scroll_y;
+  int m_scroll_x,m_scroll_y,m_wheel_remainder;
 
   int m_capmode; // HIWORD is 0 for normal (then LOWORD gets 1 set if drag began), 1 for scroll (LOWORD has ypos)
 };
@@ -5814,8 +5829,11 @@ static LRESULT treeViewWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
       if ((GetAsyncKeyState(VK_CONTROL)&0x8000) || (GetAsyncKeyState(VK_MENU)&0x8000)) break; // pass modified mousewheel to parent
 
       {
-        const int amt = ((short)HIWORD(wParam))/40;
-        if (amt && tvs)
+        if (!tvs) return 1;
+        tvs->m_wheel_remainder += (short)HIWORD(wParam);
+        const int amt = tvs->m_wheel_remainder / 40;
+        tvs->m_wheel_remainder %= 40;
+        if (amt)
         {
           const int oldscroll = tvs->m_scroll_y;
           tvs->m_scroll_y -= amt*tvs->m_last_row_height;
