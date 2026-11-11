@@ -60,7 +60,7 @@ extern void (*swell_gtk_im_context_set_client_window)(GtkIMContext *context, Gdk
 extern void (*swell_gtk_im_context_set_surrounding)(GtkIMContext *context,  const gchar *text, gint len, gint cursor_index);
 GtkIMContext *swell_ime_context;
 HWND swell_ime_target;
-static int swell_ime_preedit_state;
+static int swell_ime_preedit_cursor;
 static gchar *swell_ime_preedit_str;
 static void ime_commit_cb(GtkIMContext *im_context, const gchar *str, gpointer user_data);
 static void ime_preedit_changed_cb(GtkIMContext *im_context, gpointer user_data);
@@ -8998,7 +8998,7 @@ static void ime_preedit_changed_cb(GtkIMContext *im_context, gpointer user_data)
   gint cursor_pos = 0;
   swell_gtk_im_context_get_preedit_string(im_context, &preedit_text, &attrs, &cursor_pos);
 
-  swell_ime_preedit_state = preedit_text && *preedit_text ? 1 : 0;
+  swell_ime_preedit_cursor = preedit_text ? wdl_clamp(cursor_pos, 0, WDL_utf8_get_charlen(preedit_text)) : 0;
   g_free(swell_ime_preedit_str);
   swell_ime_preedit_str = preedit_text;
   if (preedit_text && *preedit_text) InvalidateRect(hwnd, NULL, FALSE);
@@ -9011,7 +9011,7 @@ static void ime_preedit_end_cb(GtkIMContext *im_context, gpointer user_data) // 
   HWND hwnd = swell_ime_target;
   if (!hwnd) return;
 
-  swell_ime_preedit_state=0;
+  swell_ime_preedit_cursor=0;
   g_free(swell_ime_preedit_str);
   swell_ime_preedit_str=NULL;
   InvalidateRect(hwnd, NULL, FALSE);
@@ -9143,7 +9143,6 @@ static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int 
 
   const char *preedit_text = (const char *)swell_ime_preedit_str;
   const int preedit_byte_len = preedit_text ? strlen(preedit_text) : 0;
-  const int preedit_len = preedit_text ? WDL_utf8_get_charlen(preedit_text) : 0;
   int scroll_pos = 0;
   const bool is_multiline = (hwnd->m_style & ES_MULTILINE) != 0;
   const bool is_word_wrap = (hwnd->m_style & (ES_MULTILINE | ES_AUTOHSCROLL)) == ES_MULTILINE;
@@ -9156,9 +9155,9 @@ static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int 
     if (preedit_text) title_out->Append(preedit_text);
     title_out->Append(orig_title->Get() + cursor_pos);
     sel1 = cursor_pos;
-    cursor_pos += preedit_byte_len;
-    sel2 = cursor_pos;
-    scroll_pos = es->cursor_pos + preedit_len;
+    sel2 = cursor_pos + preedit_byte_len;
+    cursor_pos += WDL_utf8_charpos_to_bytepos(preedit_text, swell_ime_preedit_cursor);
+    scroll_pos = es->cursor_pos + swell_ime_preedit_cursor;
   }
   else if (sel2 > sel1)
   {
@@ -9168,8 +9167,9 @@ static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int 
     else title_out->Set("");
     if (preedit_text) title_out->Append(preedit_text);
     title_out->Append(orig_title->Get() + sel2);
-    cursor_pos = sel2 = sel1 + preedit_byte_len;
-    scroll_pos = es->sel1 + preedit_len;
+    sel2 = sel1 + preedit_byte_len;
+    cursor_pos = sel1 + WDL_utf8_charpos_to_bytepos(preedit_text, swell_ime_preedit_cursor);
+    scroll_pos = es->sel1 + swell_ime_preedit_cursor;
   }
   else
     title_out->Set(orig_title->Get());
