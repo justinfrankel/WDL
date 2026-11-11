@@ -109,12 +109,14 @@ LICE_OBJS = lice.o  lice_arc.o lice_colorspace.o lice_line.o lice_text.o \
 OBJS = $(SWELL_OBJS)
 
 ifndef NOGDK
+  CFLAGS += $(shell $(PKG_CONFIG) --cflags x11-xcb xcb-icccm xcb-xinput)
+  LINKEXTRA += $(shell $(PKG_CONFIG) --libs x11-xcb xcb-icccm xcb-xinput)
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
     ifndef PRELOAD_GDK
       LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
     else
-      LINKEXTRA += -lX11 -lXi
+      LINKEXTRA += -lX11
       CFLAGS += -DSWELL_PRELOAD="libgdk-x11-2.0.so.0"
     endif
   else
@@ -130,7 +132,7 @@ ifndef NOGDK
         LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0)
       endif
     else
-      LINKEXTRA += -lX11 -lXi
+      LINKEXTRA += -lX11
       CFLAGS += -DSWELL_PRELOAD="libgdk-3.so.0"
     endif
   endif
