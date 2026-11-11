@@ -3242,8 +3242,14 @@ static bool want_key_embed_redirect(Display *disp, Window scan_id, Window *new_d
           )
       {
         void *p = GetProp(foc,"SWELL_XBRIDGE_KBHOOK_CHECK");
-        if (p && SendMessage(GetParent(foc),(int)(INT_PTR)p,keycode,modstate))
-          return false;
+        if (p)
+        {
+          foc->Retain();
+          const bool handled = SendMessage(GetParent(foc),(int)(INT_PTR)p,keycode,modstate);
+          const bool valid = !foc->m_hashaddestroy && foc->m_private_data == (INT_PTR)bs && GetFocus() == foc;
+          foc->Release();
+          if (handled || !valid) return false;
+        }
 
         Window root, par, *list=NULL;
         unsigned int nlist=0;
