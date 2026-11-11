@@ -495,6 +495,9 @@ void SWELL_initargs(int *argc, char ***argv)
 
     if (!SWELL_gdk_active)
       SWELL_gdk_active = gdk_init_check(argc,argv) ? 1 : -1;
+#if SWELL_TARGET_GDK == 3
+    if (SWELL_gdk_active > 0 && !GDK_IS_X11_DISPLAY(gdk_display_get_default())) SWELL_gdk_active = -1;
+#endif
     if (SWELL_gdk_active > 0)
     {
       char buf[1024];
@@ -3440,6 +3443,7 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
 {
   HWND hwnd = NULL;
   *wref = NULL;
+  if (!swell_initwindowsys()) return NULL;
 
   GdkWindow *ospar = NULL;
   HWND hpar = viewpar;
