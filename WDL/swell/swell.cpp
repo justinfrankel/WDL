@@ -36,6 +36,9 @@
 
 
 #include "swell-internal.h"
+#ifndef SWELL_TARGET_OSX
+#include "swell-platform.h"
+#endif
 
 #ifdef SWELL_TARGET_OSX
 #include <Carbon/Carbon.h>
@@ -1099,10 +1102,6 @@ void GetTempPath(int bufsz, char *buf)
 const char *g_swell_appname;
 char *g_swell_defini;
 const char *g_swell_fontpangram;
-#ifdef SWELL_TARGET_GDK
-bool swell_gdk_set_fullscreen(HWND, int);
-#endif
-
 int *g_swell_focusrect_color;
 
 void *SWELL_ExtendedAPI(const char *key, void *v)
@@ -1199,28 +1198,27 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
   }
 #ifdef SWELL_TARGET_GDK
   else if (!strcmp(key,"-FULLSCREEN"))
-    return v && swell_gdk_set_fullscreen((HWND)v,0) ? v : NULL;
+    return v && swell_oswindow_set_fullscreen((HWND)v,0) ? v : NULL;
   else if (!strcmp(key,"FULLSCREEN"))
-    return v && swell_gdk_set_fullscreen((HWND)v,1) ? v : NULL;
+    return v && swell_oswindow_set_fullscreen((HWND)v,1) ? v : NULL;
   else if (!strcmp(key,"oFULLSCREEN"))
-    return v && swell_gdk_set_fullscreen((HWND)v,2) ? v : NULL;
+    return v && swell_oswindow_set_fullscreen((HWND)v,2) ? v : NULL;
   else if (!strcmp(key,"activate_app"))
   {
-    void swell_gdk_reactivate_app(void);
-    swell_gdk_reactivate_app();
+    swell_oswindow_reactivate_app();
   }
   else if (!strcmp(key,"PREVENT_SCREENSAVER") || !strcmp(key,"-PREVENT_SCREENSAVER"))
   {
-    void swell_gdk_prevent_screensaver(bool, const char *v);
-    swell_gdk_prevent_screensaver(key[0] != '-', (const char *) v);
+    swell_oswindow_prevent_screensaver(key[0] != '-', (const char *) v);
   }
 #endif
 #ifdef SWELL_SUPPORT_GTK
   else if (!strcmp(key,"LOAD_GTK"))
   {
-    bool SWELL_load_gtk(void);
     return SWELL_load_gtk() ? (void*)"OK": NULL;
   }
+#endif
+#ifdef SWELL_SUPPORT_IME
   else if (!strcmp(key,"IME_ENABLED"))
   {
     extern bool swell_ime_enabled;

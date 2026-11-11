@@ -28,10 +28,13 @@
 #ifndef SWELL_TARGET_GDK
 
 #include "swell-internal.h"
+#include "swell-platform.h"
 #include "swell-dlggen.h"
 #include "../wdlcstring.h"
 
-void swell_oswindow_destroy(HWND hwnd)
+void swell_oswindow_destroy_spare_gdk(SWELL_OSWINDOW) { }
+
+void swell_oswindow_destroy_gdk(HWND hwnd)
 {
   if (hwnd && hwnd->m_oswindow)
   {
@@ -43,17 +46,17 @@ void swell_oswindow_destroy(HWND hwnd)
 #endif
   }
 }
-void swell_oswindow_update_text(HWND hwnd)
+void swell_oswindow_update_text_gdk(HWND hwnd)
 {
   if (hwnd) printf("SWELL: swt '%s'\n",hwnd->m_title.Get());
 
 }
 
-void swell_oswindow_maximize(HWND, bool wantmax)
+void swell_oswindow_maximize_gdk(HWND, bool wantmax)
 {
 }
 
-void swell_oswindow_focus(HWND hwnd)
+void swell_oswindow_focus_gdk(HWND hwnd)
 {
   if (!hwnd)
   {
@@ -66,28 +69,28 @@ void swell_oswindow_focus(HWND hwnd)
   }
 }
 
-void swell_recalcMinMaxInfo(HWND hwnd)
+void swell_recalcMinMaxInfo_gdk(HWND hwnd)
 {
 }
 
 
-void SWELL_initargs(int *argc, char ***argv)
+void SWELL_initargs_gdk(int *argc, char ***argv)
 {
 }
 
 #ifdef SWELL_LICE_GDI
-LICE_IBitmap *swell_oswindow_acquire_bitmap(LICE_IBitmap *bitmap, int x, int y, int w, int h)
+LICE_IBitmap *swell_oswindow_acquire_bitmap_gdk(LICE_IBitmap *bitmap, int x, int y, int w, int h)
 {
   return new LICE_SubBitmap(bitmap, x, y, w, h);
 }
 
-void swell_oswindow_release_bitmap(HWND hwnd, LICE_IBitmap *bitmap, const RECT *dirty)
+void swell_oswindow_release_bitmap_gdk(HWND hwnd, LICE_IBitmap *bitmap, const RECT *dirty)
 {
   delete bitmap;
 }
 #endif
 
-void swell_oswindow_manage(HWND hwnd, bool wantfocus)
+void swell_oswindow_manage_gdk(HWND hwnd, bool wantfocus)
 {
   if (!hwnd) return;
 
@@ -96,31 +99,33 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
 
   if (isVis != wantVis)
   {
-    if (!wantVis) swell_oswindow_destroy(hwnd);
+    if (!wantVis) swell_oswindow_destroy_gdk(hwnd);
     else 
     {
        // generic implementation
       hwnd->m_oswindow = hwnd;
-      if (wantfocus) swell_oswindow_focus(hwnd);
+      if (wantfocus) swell_oswindow_focus_gdk(hwnd);
     }
   }
-  if (wantVis) swell_oswindow_update_text(hwnd);
+  if (wantVis) swell_oswindow_update_text_gdk(hwnd);
 }
 
-void SWELL_RunEvents()
+
+
+void SWELL_RunEvents_gdk()
 {
 }
 
 
-void swell_oswindow_update_style(HWND hwnd, LONG oldstyle)
+void swell_oswindow_update_style_gdk(HWND hwnd, LONG oldstyle)
 {
 }
 
-void swell_oswindow_update_enable(HWND hwnd)
+void swell_oswindow_update_enable_gdk(HWND hwnd)
 {
 }
 
-int SWELL_SetWindowLevel(HWND hwnd, int newlevel)
+int SWELL_SetWindowLevel_gdk(HWND hwnd, int newlevel)
 {
   int rv=0;
   if (hwnd)
@@ -131,7 +136,7 @@ int SWELL_SetWindowLevel(HWND hwnd, int newlevel)
   return rv;
 }
 
-void SWELL_GetViewPort(RECT *r, const RECT *sourcerect, bool wantWork)
+void SWELL_GetViewPort_gdk(RECT *r, const RECT *sourcerect, bool wantWork)
 {
   r->left=r->top=0;
   r->right=1024;
@@ -139,7 +144,7 @@ void SWELL_GetViewPort(RECT *r, const RECT *sourcerect, bool wantWork)
 }
 
 
-bool GetWindowRect(HWND hwnd, RECT *r)
+bool GetWindowRect_gdk(HWND hwnd, RECT *r)
 {
   if (!hwnd) return false;
   if (hwnd->m_oswindow)
@@ -158,25 +163,25 @@ bool GetWindowRect(HWND hwnd, RECT *r)
   return !destroyed;
 }
 
-void swell_oswindow_begin_resize(SWELL_OSWINDOW wnd) { }
-void swell_oswindow_resize(SWELL_OSWINDOW wnd, int reposflag, RECT f) { }
-void swell_oswindow_postresize(HWND hwnd, RECT f) { }
-void swell_oswindow_invalidate(HWND hwnd, const RECT *r) { }
+void swell_oswindow_begin_resize_gdk(SWELL_OSWINDOW wnd) { }
+void swell_oswindow_resize_gdk(SWELL_OSWINDOW wnd, int reposflag, RECT f) { }
+void swell_oswindow_postresize_gdk(HWND hwnd, RECT f) { }
+void swell_oswindow_invalidate_gdk(HWND hwnd, const RECT *r) { }
 
-void UpdateWindow(HWND hwnd) { }
+void UpdateWindow_gdk(HWND hwnd) { }
 
 static WDL_IntKeyedArray<HANDLE> m_clip_recs(GlobalFree);
 static WDL_PtrList<char> m_clip_curfmts;
 
-bool OpenClipboard(HWND hwndDlg)
+bool OpenClipboard_gdk(HWND hwndDlg)
 { 
-  RegisterClipboardFormat(NULL);
+  RegisterClipboardFormat_gdk(NULL);
   return true; 
 }
 
-void CloseClipboard() { }
+void CloseClipboard_gdk() { }
 
-UINT EnumClipboardFormats(UINT lastfmt)
+UINT EnumClipboardFormats_gdk(UINT lastfmt)
 {
   int x=0;
   for (;;)
@@ -189,24 +194,24 @@ UINT EnumClipboardFormats(UINT lastfmt)
   }
 }
 
-HANDLE GetClipboardData(UINT type)
+HANDLE GetClipboardData_gdk(UINT type)
 {
   return m_clip_recs.Get(type);
 }
 
 
-void EmptyClipboard()
+void EmptyClipboard_gdk()
 {
   m_clip_recs.DeleteAll();
 }
 
-void SetClipboardData(UINT type, HANDLE h)
+void SetClipboardData_gdk(UINT type, HANDLE h)
 {
   if (h) m_clip_recs.Insert(type,h);
   else m_clip_recs.Delete(type);
 }
 
-UINT RegisterClipboardFormat(const char *desc)
+UINT RegisterClipboardFormat_gdk(const char *desc)
 {
   if (!m_clip_curfmts.GetSize())
   {
@@ -223,25 +228,25 @@ UINT RegisterClipboardFormat(const char *desc)
 }
 
 
-void GetCursorPos(POINT *pt)
+void GetCursorPos_gdk(POINT *pt)
 {
   pt->x=0;
   pt->y=0;
 }
 
 
-WORD GetAsyncKeyState(int key)
+WORD GetAsyncKeyState_gdk(int key)
 {
   return 0;
 }
 
 
-DWORD GetMessagePos()
+DWORD GetMessagePos_gdk()
 {  
   return 0;
 }
 
-HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
+HWND SWELL_CreateXBridgeWindow_gdk(HWND viewpar, void **wref, const RECT *r)
 {
   *wref = NULL;
   return NULL;
@@ -249,51 +254,51 @@ HWND SWELL_CreateXBridgeWindow(HWND viewpar, void **wref, const RECT *r)
 
 
 
-void SWELL_InitiateDragDrop(HWND hwnd, RECT* srcrect, const char* srcfn, void (*callback)(const char* dropfn))
+void SWELL_InitiateDragDrop_gdk(HWND hwnd, RECT* srcrect, const char* srcfn, void (*callback)(const char* dropfn))
 {
 }
 
 // owner owns srclist, make copies here etc
-void SWELL_InitiateDragDropOfFileList(HWND hwnd, RECT *srcrect, const char **srclist, int srccount, HICON icon)
+void SWELL_InitiateDragDropOfFileList_gdk(HWND hwnd, RECT *srcrect, const char **srclist, int srccount, HICON icon)
 {
 }
 
-void SWELL_FinishDragDrop() { }
+void SWELL_FinishDragDrop_gdk() { }
 
 static HCURSOR m_last_setcursor;
 
-void SWELL_SetCursor(HCURSOR curs)
+void SWELL_SetCursor_gdk(HCURSOR curs)
 {
   m_last_setcursor=curs;
 }
 
-HCURSOR SWELL_GetCursor()
+HCURSOR SWELL_GetCursor_gdk()
 {
   return m_last_setcursor;
 }
-HCURSOR SWELL_GetLastSetCursor()
+HCURSOR SWELL_GetLastSetCursor_gdk()
 {
   return m_last_setcursor;
 }
 
 static int m_curvis_cnt;
-bool SWELL_IsCursorVisible()
+bool SWELL_IsCursorVisible_gdk()
 {
   return m_curvis_cnt>=0;
 }
 
-int SWELL_ShowCursor(BOOL bShow)
+int SWELL_ShowCursor_gdk(BOOL bShow)
 {
   m_curvis_cnt += (bShow?1:-1);
   return m_curvis_cnt;
 }
 
-BOOL SWELL_SetCursorPos(int X, int Y)
+BOOL SWELL_SetCursorPos_gdk(int X, int Y)
 {  
   return false;
 }
 
-HCURSOR SWELL_LoadCursorFromFile(const char *fn)
+HCURSOR SWELL_LoadCursorFromFile_gdk(const char *fn)
 {
   return NULL;
 }
@@ -301,14 +306,14 @@ HCURSOR SWELL_LoadCursorFromFile(const char *fn)
 
 static SWELL_CursorResourceIndex *SWELL_curmodule_cursorresource_head;
 
-HCURSOR SWELL_LoadCursor(const char *_idx)
+HCURSOR SWELL_LoadCursor_gdk(const char *_idx)
 {
   return NULL;
 }
 
 
 
-void SWELL_Register_Cursor_Resource(const char *idx, const char *name, int hotspot_x, int hotspot_y)
+void SWELL_Register_Cursor_Resource_gdk(const char *idx, const char *name, int hotspot_x, int hotspot_y)
 {
   SWELL_CursorResourceIndex *ri = (SWELL_CursorResourceIndex*)malloc(sizeof(SWELL_CursorResourceIndex));
   ri->hotspot.x = hotspot_x;
@@ -320,15 +325,27 @@ void SWELL_Register_Cursor_Resource(const char *idx, const char *name, int hotsp
   SWELL_curmodule_cursorresource_head = ri;
 }
 
-int SWELL_KeyToASCII(int wParam, int lParam, int *newflags)
+int SWELL_KeyToASCII_gdk(int wParam, int lParam, int *newflags)
 {
   return 0;
 }
 
-int swell_is_app_inactive() { return 0; }
+int swell_is_app_inactive_gdk() { return 0; }
 
-void *SWELL_GetOSWindow(HWND hwnd, const char *type) { return NULL; }
-void *SWELL_GetOSEvent(const char *type) { return NULL; }
+void *SWELL_GetOSWindow_gdk(HWND hwnd, const char *type) { return NULL; }
+void *SWELL_GetOSEvent_gdk(const char *type) { return NULL; }
+
+void SWELL_SetViewGL_gdk(HWND, char) { }
+bool SWELL_GetViewGL_gdk(HWND) { return false; }
+bool SWELL_SetGLContextToView_gdk(HWND) { return false; }
+BOOL EnumDisplayMonitors_gdk(HDC, const LPRECT, MONITORENUMPROC, LPARAM) { return FALSE; }
+BOOL GetMonitorInfo_gdk(HMONITOR, void *) { return FALSE; }
+void swell_scaling_init_gdk(bool) { }
+bool swell_oswindow_set_fullscreen_gdk(HWND, int) { return false; }
+void swell_oswindow_reactivate_app_gdk() { }
+void swell_oswindow_prevent_screensaver_gdk(bool, const char *) { }
+void swell_oswindow_ime_focus_gdk(HWND) { }
+void swell_oswindow_ime_update_gdk(HWND, HWND, const RECT *, const char *, int, int) { }
 
 #endif
 #endif

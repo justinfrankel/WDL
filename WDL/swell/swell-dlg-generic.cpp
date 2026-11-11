@@ -89,9 +89,7 @@ void swell_dlg_destroyspare()
   }
   if (s_spare) 
   { 
-#ifdef SWELL_TARGET_GDK
-    gdk_window_destroy(s_spare);
-#endif
+    swell_oswindow_destroy_spare(s_spare);
     s_spare=NULL; 
   }
 }

@@ -110,7 +110,7 @@ ifndef NO_GFX
 
     SWELL_OBJS += swell-wnd-generic.o swell-gdi-lice.o swell.o swell-misc-generic.o \
             swell-dlg-generic.o swell-menu-generic.o swell-kb-generic.o \
-            swell-gdi-generic.o swell-ini.o swell-generic-gdk.o
+            swell-gdi-generic.o swell-ini.o swell-generic.o swell-generic-gdk.o
 
     LFLAGS += -ldl -lGL
   endif

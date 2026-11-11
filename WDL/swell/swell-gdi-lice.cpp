@@ -27,6 +27,9 @@
 
 #include "swell.h"
 #include "swell-internal.h"
+#ifdef SWELL_TARGET_GDK
+#include <gdk-pixbuf/gdk-pixbuf.h>
+#endif
 
 #include "../mutex.h"
 #include "../ptrlist.h"

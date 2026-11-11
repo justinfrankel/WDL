@@ -31,6 +31,7 @@
 #define SWELL_INTERNAL_MERGESORT_IMPL
 #define SWELL_INTERNAL_HTREEITEM_IMPL
 #include "swell-internal.h"
+#include "swell-platform.h"
 
 #include <math.h>
 #include "../mutex.h"
@@ -49,24 +50,11 @@ bool swell_is_likely_capslock; // only used when processing dit events for a-zA-
 SWELL_OSWINDOW SWELL_focused_oswindow; // top level window which has focus (might not map to a HWND__!)
 HWND swell_captured_window;
 
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
 bool swell_ime_enabled;
-extern void (*swell_gtk_im_context_focus_in)(GtkIMContext *);
-extern void (*swell_gtk_im_context_focus_out)(GtkIMContext *);
-extern void (*swell_gtk_im_context_get_preedit_string)(GtkIMContext *, gchar **, PangoAttrList **, gint *);
-extern GtkIMContext *(*swell_gtk_im_multicontext_new)(void);
-extern void (*swell_gtk_im_context_set_cursor_location)(GtkIMContext *, const GdkRectangle *);
-extern void (*swell_gtk_im_context_set_client_window)(GtkIMContext *context, GdkWindow *window);
-extern void (*swell_gtk_im_context_set_surrounding)(GtkIMContext *context,  const gchar *text, gint len, gint cursor_index);
-GtkIMContext *swell_ime_context;
-HWND swell_ime_target;
+static HWND swell_ime_target;
+static char *swell_ime_preedit_str;
 static int swell_ime_preedit_cursor;
-static gchar *swell_ime_preedit_str;
-static void ime_commit_cb(GtkIMContext *im_context, const gchar *str, gpointer user_data);
-static void ime_preedit_changed_cb(GtkIMContext *im_context, gpointer user_data);
-static void ime_preedit_end_cb(GtkIMContext *im_context, gpointer user_data);
-static gboolean ime_retrieve_surrounding_cb(GtkIMContext *im_context, gpointer user_data);
-static gboolean ime_delete_surrounding_cb(GtkIMContext *im_context, int offset, int n_chars, gpointer user_data);
 
 static bool swell_im_preedit_paint(struct __SWELL_editControlState *es, HWND hwnd,
                              int &sel1, int &sel2, int &cursor_pos,
@@ -186,10 +174,10 @@ static HWND s_last_rbuttondown;
 
 HWND__::~HWND__()
 {
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
   if (this == swell_ime_target)
   {
-    if (swell_ime_context) swell_gtk_im_context_focus_out(swell_ime_context);
+    swell_oswindow_ime_focus(NULL);
     swell_ime_target = NULL;
   }
 #endif
@@ -2888,7 +2876,7 @@ again:
 
           const bool multiline = (hwnd->m_style & ES_MULTILINE) != 0;
 
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
           WDL_FastString tmp_im;
           if (swell_im_preedit_paint(es, hwnd, sel1, sel2, cursor_pos, &tmp_im, title_orig))
             title = &tmp_im;
@@ -3086,7 +3074,7 @@ again:
     case WM_SETFOCUS:
       InvalidateRect(hwnd,NULL,FALSE);
     break;
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
     case WM_CHAR:
       if (es && !(hwnd->m_style & ES_READONLY))
       {
@@ -3865,7 +3853,7 @@ popupMenu:
             if (sel2>0) sel2 = utf8fs_charpos_to_bytepos(title, sel2);
             r.right -= SWELL_UI_SCALE(buttonwid+5);
             r.left -= s->editstate.scroll_x;
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
             WDL_FastString tmp;
             if (swell_im_preedit_paint(&s->editstate, hwnd, sel1, sel2, cursor_pos, &tmp, &hwnd->m_title))
               title = &tmp;
@@ -3956,7 +3944,7 @@ popupMenu:
       }
 
     return 0;
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
     case WM_CHAR:
       if (s && (hwnd->m_style & CBS_DROPDOWNLIST) != CBS_DROPDOWNLIST &&
           !(hwnd->m_style & ES_READONLY)) {
@@ -7854,54 +7842,23 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_KILLFOCUS:
-#ifdef SWELL_SUPPORT_GTK
-      if (swell_ime_context && hwnd == swell_ime_target)
+#ifdef SWELL_SUPPORT_IME
+      if (hwnd == swell_ime_target)
       {
-        swell_gtk_im_context_focus_out(swell_ime_context);
-        swell_gtk_im_context_set_client_window(swell_ime_context, 0);
+        swell_oswindow_ime_focus(NULL);
         swell_ime_target = NULL;
+        swell_ime_preedit(NULL, 0);
       }
 #endif
     break;
     case WM_SETFOCUS:
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
       if (hwnd != swell_ime_target)
       {
-        if (swell_ime_context && swell_ime_target) swell_gtk_im_context_focus_out(swell_ime_context);
-        swell_ime_target = NULL;
-
-        if (swell_im_hwnd_want(hwnd))
-        {
-          static bool one_try;
-          if (!swell_ime_context && swell_gtk_im_multicontext_new && !one_try)
-          {
-            one_try = true;
-            swell_ime_context = swell_gtk_im_multicontext_new();
-            if (swell_ime_context)
-            {
-              g_signal_connect(swell_ime_context, "commit", G_CALLBACK(ime_commit_cb), NULL);
-              g_signal_connect(swell_ime_context, "preedit-changed", G_CALLBACK(ime_preedit_changed_cb), NULL);
-              g_signal_connect(swell_ime_context, "preedit-end", G_CALLBACK(ime_preedit_end_cb), NULL);
-              if (swell_gtk_im_context_set_surrounding)
-              {
-                g_signal_connect(swell_ime_context, "retrieve-surrounding", G_CALLBACK(ime_retrieve_surrounding_cb), NULL);
-                g_signal_connect(swell_ime_context, "delete-surrounding", G_CALLBACK(ime_delete_surrounding_cb), NULL);
-              }
-            }
-          }
-
-          if (swell_ime_context)
-          {
-            HWND h = hwnd;
-            while (h && !h->m_oswindow) h=h->m_parent;
-            if (h && h->m_oswindow)
-            {
-              swell_ime_target = hwnd;
-              swell_gtk_im_context_set_client_window(swell_ime_context, h->m_oswindow);
-              swell_gtk_im_context_focus_in(swell_ime_context);
-            }
-          }
-        }
+        swell_oswindow_ime_focus(NULL);
+        swell_ime_preedit(NULL, 0);
+        swell_ime_target = swell_im_hwnd_want(hwnd) ? hwnd : NULL;
+        if (swell_ime_target) swell_oswindow_ime_focus(hwnd);
       }
 #endif
     break;
@@ -8981,7 +8938,7 @@ LRESULT SWELL_SendMouseMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
   return ret;
 }
 
-#ifdef SWELL_SUPPORT_GTK
+#ifdef SWELL_SUPPORT_IME
 static int swell_im_hwnd_want(HWND hwnd)
 {
   if (!swell_ime_enabled || !hwnd || !hwnd->m_classname) return 0;
@@ -8991,7 +8948,12 @@ static int swell_im_hwnd_want(HWND hwnd)
   return 0;
 }
 
-static void ime_commit_cb(GtkIMContext *im_context, const gchar *str, gpointer user_data)
+HWND swell_ime_get_target()
+{
+  return swell_ime_target;
+}
+
+void swell_ime_commit(const char *str)
 {
   HWND hwnd = swell_ime_target;
   if (!hwnd || !str) return;
@@ -9010,60 +8972,38 @@ static void ime_commit_cb(GtkIMContext *im_context, const gchar *str, gpointer u
   hwnd->Release();
 }
 
-static void ime_preedit_changed_cb(GtkIMContext *im_context, gpointer user_data)
+void swell_ime_preedit(const char *text, int cursor)
 {
-  if (!swell_gtk_im_context_get_preedit_string) return;
-
-  HWND hwnd = swell_ime_target;
-
-  gchar *preedit_text = NULL;
-  PangoAttrList *attrs = NULL;
-  gint cursor_pos = 0;
-  swell_gtk_im_context_get_preedit_string(im_context, &preedit_text, &attrs, &cursor_pos);
-
-  swell_ime_preedit_cursor = preedit_text ? wdl_clamp(cursor_pos, 0, WDL_utf8_get_charlen(preedit_text)) : 0;
-  g_free(swell_ime_preedit_str);
-  swell_ime_preedit_str = preedit_text;
-  if (preedit_text && *preedit_text) InvalidateRect(hwnd, NULL, FALSE);
-
-  if (attrs) pango_attr_list_unref(attrs);
+  free(swell_ime_preedit_str);
+  swell_ime_preedit_str = text && *text ? strdup(text) : NULL;
+  swell_ime_preedit_cursor = text ? wdl_clamp(cursor, 0, WDL_utf8_get_charlen(text)) : 0;
+  if (swell_ime_target) InvalidateRect(swell_ime_target, NULL, FALSE);
 }
 
-static void ime_preedit_end_cb(GtkIMContext *im_context, gpointer user_data) // If the preedit is finished
+static __SWELL_editControlState *swell_ime_edit_state(HWND hwnd)
 {
-  HWND hwnd = swell_ime_target;
-  if (!hwnd) return;
-
-  swell_ime_preedit_cursor=0;
-  g_free(swell_ime_preedit_str);
-  swell_ime_preedit_str=NULL;
-  InvalidateRect(hwnd, NULL, FALSE);
-}
-
-static gboolean ime_retrieve_surrounding_cb(GtkIMContext *im_context, gpointer user_data)
-{
-  HWND hwnd = swell_ime_target;
-  if (!hwnd) return false;
-
-  if (!swell_gtk_im_context_set_surrounding) return false;
-
   const int type = swell_im_hwnd_want(hwnd);
-  __SWELL_editControlState *es = NULL;
-  if (type == 2)
-    es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
-  else if (type == 1)
-    es = (__SWELL_editControlState*)hwnd->m_private_data;
+  if (!hwnd || hwnd->m_hashaddestroy || !hwnd->m_private_data) return NULL;
+  if (type == 2) return &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
+  if (type == 1) return (__SWELL_editControlState*)hwnd->m_private_data;
+  return NULL;
+}
 
+bool swell_ime_get_surrounding(const char **text, int *cursor, int *anchor)
+{
+  HWND hwnd = swell_ime_target;
+  __SWELL_editControlState *es = swell_ime_edit_state(hwnd);
   if (!es) return false;
-
-  swell_gtk_im_context_set_surrounding(im_context,
-      hwnd->m_title.Get(),
-      hwnd->m_title.GetLength(),
-      utf8fs_charpos_to_bytepos(&hwnd->m_title,es->cursor_pos));
+  *text = hwnd->m_title.Get();
+  *cursor = utf8fs_charpos_to_bytepos(&hwnd->m_title, es->cursor_pos);
+  const int ac = es->sel2 > es->sel1 && es->sel1 >= 0 ?
+    (es->cursor_pos == es->sel1 ? es->sel2 : es->sel1) : es->cursor_pos;
+  *anchor = utf8fs_charpos_to_bytepos(&hwnd->m_title, ac);
   return true;
 }
 
-static gboolean ime_delete_surrounding_cb(GtkIMContext *im_context, int offset, int n_chars, gpointer user_data)
+
+bool swell_ime_delete_surrounding_chars(int offset, int n_chars)
 {
   HWND hwnd = swell_ime_target;
   if (!hwnd || hwnd->m_hashaddestroy || n_chars < 0 || (hwnd->m_style & ES_READONLY)) return false;
@@ -9102,7 +9042,6 @@ static gboolean ime_delete_surrounding_cb(GtkIMContext *im_context, int offset, 
 
 void swell_im_update_candidates_location()
 {
-  if (!swell_gtk_im_context_set_cursor_location || !swell_ime_context) return;
   HWND hwnd = GetFocus();
   if (!hwnd || hwnd != swell_ime_target || hwnd->m_hashaddestroy) return;
   HWND client_hwnd = hwnd;
@@ -9121,11 +9060,7 @@ void swell_im_update_candidates_location()
     if (!hwnd->m_hashaddestroy)
     {
       const int type = swell_im_hwnd_want(hwnd);
-      __SWELL_editControlState *es = NULL;
-      if (type == 2 && hwnd->m_private_data)
-        es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
-      else if (type == 1)
-        es = (__SWELL_editControlState*)hwnd->m_private_data;
+      __SWELL_editControlState *es = swell_ime_edit_state(hwnd);
       int cursor_pos = es ? es->cursor_pos : 0;
       if (es && es->sel1 == 0 && es->sel2 > 0) cursor_pos = 0;
       RECT tmp = {0,};
@@ -9150,8 +9085,11 @@ void swell_im_update_candidates_location()
   if (!hwnd->m_hashaddestroy && !client_hwnd->m_hashaddestroy && hwnd == swell_ime_target &&
       client_hwnd->m_oswindow == native && swell_oswindow_from_hwnd(hwnd) == native)
   {
-    GdkRectangle preedit_area = {x, y, 0, 0};
-    swell_gtk_im_context_set_cursor_location(swell_ime_context, &preedit_area);
+    RECT preedit_area = {x, y, x, y};
+    const char *text = NULL;
+    int cursor = 0, anchor = 0;
+    swell_ime_get_surrounding(&text, &cursor, &anchor);
+    swell_oswindow_ime_update(hwnd, client_hwnd, &preedit_area, text, cursor, anchor);
   }
   client_hwnd->Release();
   hwnd->Release();
@@ -9159,7 +9097,7 @@ void swell_im_update_candidates_location()
 
 static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int &sel1, int &sel2, int &cursor_pos, WDL_FastString *title_out, const WDL_FastString *orig_title)
 {
-  if (!hwnd || swell_ime_target != hwnd || !swell_ime_context) return false;
+  if (!hwnd || swell_ime_target != hwnd) return false;
   if (!swell_ime_preedit_str) return false;
 
   cursor_pos = wdl_clamp(cursor_pos, 0, orig_title->GetLength());
@@ -9203,6 +9141,7 @@ static bool swell_im_preedit_paint(__SWELL_editControlState *es, HWND hwnd, int 
 
   return true;
 }
+
 #endif
 
 #endif

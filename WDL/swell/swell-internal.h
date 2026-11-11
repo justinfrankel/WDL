@@ -21,6 +21,10 @@
 #ifndef _SWELL_INTERNAL_H_
 #define _SWELL_INTERNAL_H_
 
+#ifdef SWELL_SUPPORT_GTK
+#define SWELL_SUPPORT_IME
+#endif
+
 #include "../ptrlist.h"
 
 struct SWELL_ListView_Rec
@@ -837,18 +841,6 @@ SWELL_IMPLEMENT_GETOSXVERSION int SWELL_GetOSXVersion()
 #endif
 
 
-#elif defined(SWELL_TARGET_GDK)
-
-
-#ifdef SWELL_SUPPORT_GTK
-#include <gtk/gtk.h>
-#endif
-
-#include <gdk/gdk.h>
-#include <gdk/gdkkeysyms.h>
-#include <gdk/gdkx.h>
-
-
 #else
 // generic 
 
@@ -885,11 +877,7 @@ struct HTREEITEM__
 LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 
-#ifdef SWELL_TARGET_GDK
-typedef GdkWindow *SWELL_OSWINDOW;
-#else
-typedef void *SWELL_OSWINDOW; // maps to the HWND__ itself on visible, non-GDK, top level windows
-#endif
+typedef void *SWELL_OSWINDOW;
 
 struct HWND__
 {
@@ -1034,6 +1022,7 @@ void swell_oswindow_resize(SWELL_OSWINDOW wnd, int reposflag, RECT f);
 void swell_oswindow_postresize(HWND hwnd, RECT f);
 void swell_oswindow_invalidate(HWND hwnd, const RECT *r);
 void swell_oswindow_destroy(HWND hwnd);
+void swell_oswindow_destroy_spare(SWELL_OSWINDOW window);
 void swell_oswindow_manage(HWND hwnd, bool wantfocus);
 void swell_oswindow_maximize(HWND, bool wantmax); // false=restore
 #ifdef SWELL_LICE_GDI
