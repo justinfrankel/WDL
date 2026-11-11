@@ -792,16 +792,28 @@ void SetWindowPos(HWND hwnd, HWND zorder, int x, int y, int cx, int cy, int flag
 }
 
 
+static void swell_enum_snapshot(HWND hwnd, WDL_PtrList<HWND__> &windows, bool children)
+{
+  for (; hwnd; hwnd = hwnd->m_next)
+  {
+    if (windows.Add(hwnd)) hwnd->Retain();
+    if (children) swell_enum_snapshot(hwnd->m_children, windows, true);
+  }
+}
+
 BOOL EnumWindows(BOOL (*proc)(HWND, LPARAM), LPARAM lp)
 {
-  HWND h = SWELL_topwindows;
   if (!proc) return FALSE;
-  while (h)
+  WDL_PtrList<HWND__> windows;
+  swell_enum_snapshot(SWELL_topwindows, windows, false);
+  BOOL result = TRUE;
+  for (int i = 0; i < windows.GetSize(); ++i)
   {
-    if (!proc(h,lp)) return FALSE;
-    h = h->m_next;
+    HWND h = windows.Get(i);
+    if (result && !h->m_hashaddestroy && !h->m_parent && !proc(h,lp)) result = FALSE;
+    h->Release();
   }
-  return TRUE;
+  return result;
 }
 
 HWND GetWindow(HWND hwnd, int what)
@@ -8583,16 +8595,21 @@ BOOL Header_SetItem(HWND h, int col, HDITEM* hi)
 
 BOOL EnumChildWindows(HWND hwnd, BOOL (*cwEnumFunc)(HWND,LPARAM),LPARAM lParam)
 {
-  if (WDL_NORMALLY(hwnd) && hwnd->m_children)
+  if (!cwEnumFunc) return FALSE;
+  if (!WDL_NORMALLY(hwnd)) return TRUE;
+  hwnd->Retain();
+  WDL_PtrList<HWND__> windows;
+  swell_enum_snapshot(hwnd->m_children, windows, true);
+  BOOL result = TRUE;
+  for (int i = 0; i < windows.GetSize(); ++i)
   {
-    HWND n=hwnd->m_children;
-    while (n)
-    {
-      if (!cwEnumFunc(n,lParam) || !EnumChildWindows(n,cwEnumFunc,lParam)) return FALSE;
-      n = n->m_next;
-    }
+    HWND h = windows.Get(i);
+    if (result && !hwnd->m_hashaddestroy && !h->m_hashaddestroy && IsChild(hwnd,h) &&
+        !cwEnumFunc(h,lParam)) result = FALSE;
+    h->Release();
   }
-  return TRUE;
+  hwnd->Release();
+  return result;
 }
 
 void SWELL_GetDesiredControlSize(HWND hwnd, RECT *r)
