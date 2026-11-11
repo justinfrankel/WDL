@@ -1067,8 +1067,8 @@ SWELL_API_DEFINE(void,GetTempPath,(int sz, char *buf))
 SWELL_API_DEFINE(void,SWELL_initargs,(int *argc, char ***argv))
 SWELL_API_DEFINE(void,SWELL_RunMessageLoop,())
 SWELL_API_DEFINE(HWND,SWELL_CreateXBridgeWindow,(HWND viewpar, void **wref, const RECT*))
-SWELL_API_DEFINE(void*,SWELL_GetOSWindow,(HWND hwnd, const char *type)) // type should be "GdkWindow"
-SWELL_API_DEFINE(void*,SWELL_GetOSEvent,(const char *type)) // type should be "GdkEvent"
+SWELL_API_DEFINE(void*,SWELL_GetOSWindow,(HWND hwnd, const char *type)) // "GdkWindow", "wl_display", or "wl_surface"
+SWELL_API_DEFINE(void*,SWELL_GetOSEvent,(const char *type)) // "GdkEvent", "xkb_state", or "xkb_keycode"
 #endif
 
 SWELL_API_DEFINE(bool,SWELL_GenerateGUID,(void *g))

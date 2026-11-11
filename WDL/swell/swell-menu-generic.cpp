@@ -356,6 +356,16 @@ static int m_trackingFlags,m_trackingRet;
 static HWND m_trackingPar;
 static WDL_PtrList<HWND__> m_trackingMenus; // each HWND as userdata = HMENU
 
+bool swell_menu_get_anchor(HWND hwnd, RECT *rect)
+{
+  if (m_trackingMenus.Find(hwnd) < 0) return false;
+  rect->left = hwnd->m_extra[4];
+  rect->top = hwnd->m_extra[5];
+  rect->right = hwnd->m_extra[6];
+  rect->bottom = hwnd->m_extra[7];
+  return true;
+}
+
 int swell_delegate_menu_message(HWND src, LPARAM lParam, int msg, bool screencoords)
 {
   static bool _reent;
@@ -564,6 +574,11 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
         SetWindowPos(hwnd,NULL,tr.left,tr.top,tr.right-tr.left,tr.bottom-tr.top,SWP_NOZORDER);
 
+        hwnd->m_extra[4] = m_trackingPt2.x;
+        hwnd->m_extra[5] = m_trackingMenus.Get(0) == hwnd && g_trackpopup_yroot.bottom > g_trackpopup_yroot.top ?
+          g_trackpopup_yroot.top : m_trackingPt.y;
+        hwnd->m_extra[6] = m_trackingPt.x;
+        hwnd->m_extra[7] = m_trackingPt.y;
         hwnd->m_extra[0] = 0; // Y scroll offset
         hwnd->m_extra[1] = 0; // is currently autoscrolling to sel_vis
         hwnd->m_extra[2] = 0; // remaining items out of view, if any
@@ -1161,6 +1176,11 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
             inf->hSubMenu->sel_vis=-1;
 
+            if (hh && !swell_oswindow_can_reuse())
+            {
+              DestroyWindow(hh);
+              hh = NULL;
+            }
             if (hh)
             {
               m_trackingMenus.Delete(nextidx);

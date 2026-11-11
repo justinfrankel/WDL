@@ -110,7 +110,11 @@ void swell_oswindow_manage_gdk(HWND hwnd, bool wantfocus)
   if (wantVis) swell_oswindow_update_text_gdk(hwnd);
 }
 
+void swell_oswindow_begin_drag_gdk(HWND) { }
+bool swell_oswindow_from_point_gdk(POINT, HWND *) { return false; }
+bool swell_oswindow_can_reuse_gdk() { return true; }
 
+void swell_oswindow_end_modal_gdk(HWND) { }
 
 void SWELL_RunEvents_gdk()
 {
@@ -344,7 +348,7 @@ BOOL EnumDisplayMonitors_gdk(HDC, const LPRECT, MONITORENUMPROC, LPARAM) { retur
 BOOL GetMonitorInfo_gdk(HMONITOR, void *) { return FALSE; }
 void swell_scaling_init_gdk(bool) { }
 bool swell_oswindow_set_fullscreen_gdk(HWND, int) { return false; }
-void swell_oswindow_reactivate_app_gdk() { }
+void swell_oswindow_reactivate_app_gdk(const char *) { }
 void swell_oswindow_prevent_screensaver_gdk(bool, const char *) { }
 void swell_oswindow_ime_focus_gdk(HWND) { }
 void swell_oswindow_ime_update_gdk(HWND, HWND, const RECT *, const char *, int, int) { }

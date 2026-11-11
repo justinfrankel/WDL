@@ -1205,20 +1205,25 @@ void *SWELL_ExtendedAPI(const char *key, void *v)
     return v && swell_oswindow_set_fullscreen((HWND)v,2) ? v : NULL;
   else if (!strcmp(key,"activate_app"))
   {
-    swell_oswindow_reactivate_app();
+    swell_oswindow_reactivate_app((const char *)v);
   }
   else if (!strcmp(key,"PREVENT_SCREENSAVER") || !strcmp(key,"-PREVENT_SCREENSAVER"))
   {
     swell_oswindow_prevent_screensaver(key[0] != '-', (const char *) v);
   }
 #endif
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
   else if (!strcmp(key,"LOAD_GTK"))
   {
     return SWELL_load_gtk() ? (void*)"OK": NULL;
   }
 #endif
 #ifdef SWELL_SUPPORT_IME
+  else if (!strcmp(key,"IME_UPDATE") && v && GetFocus() == (HWND)v)
+  {
+    swell_im_set_focus((HWND)v);
+    swell_im_update_candidates_location();
+  }
   else if (!strcmp(key,"IME_ENABLED"))
   {
     extern bool swell_ime_enabled;

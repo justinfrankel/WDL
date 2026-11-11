@@ -34,6 +34,10 @@
   X(void, swell_oswindow_manage, (HWND hwnd, bool wantfocus), (hwnd, wantfocus)) \
   X(void, swell_oswindow_maximize, (HWND hwnd, bool wantmax), (hwnd, wantmax)) \
   X(void, swell_recalcMinMaxInfo, (HWND hwnd), (hwnd)) \
+  X(void, swell_oswindow_begin_drag, (HWND hwnd), (hwnd)) \
+  X(bool, swell_oswindow_from_point, (POINT point, HWND *hwnd), (point, hwnd)) \
+  X(bool, swell_oswindow_can_reuse, (), ()) \
+  X(void, swell_oswindow_end_modal, (HWND hwnd), (hwnd)) \
   X(void, swell_oswindow_update_exstyle, (HWND hwnd), (hwnd)) \
   X(void, swell_oswindow_update_style, (HWND hwnd, LONG oldstyle), (hwnd, oldstyle)) \
   X(void, swell_oswindow_update_enable, (HWND hwnd), (hwnd)) \
@@ -74,7 +78,7 @@
   X(UINT, RegisterClipboardFormat, (const char *name), (name)) \
   X(void, swell_scaling_init, (bool no_auto_hidpi), (no_auto_hidpi)) \
   X(bool, swell_oswindow_set_fullscreen, (HWND hwnd, int mode), (hwnd, mode)) \
-  X(void, swell_oswindow_reactivate_app, (), ()) \
+  X(void, swell_oswindow_reactivate_app, (const char *token), (token)) \
   X(void, swell_oswindow_prevent_screensaver, (bool prevent, const char *description), (prevent, description)) \
   X(void, swell_oswindow_ime_focus, (HWND hwnd), (hwnd)) \
   X(void, swell_oswindow_ime_update, (HWND hwnd, HWND root, const RECT *caret, const char *text, int cursor, int anchor), (hwnd, root, caret, text, cursor, anchor))
@@ -105,6 +109,13 @@ SWELL_PLATFORM_API(SWELL_PLATFORM_DECLARE)
 SWELL_PLATFORM_GUI_API(SWELL_PLATFORM_DECLARE)
 SWELL_PLATFORM_BITMAP_API(SWELL_PLATFORM_DECLARE)
 #undef SWELL_PLATFORM_DECLARE
+#define SWELL_PLATFORM_DECLARE(ret, name, args, call) ret name##_wayland args;
+bool swell_wayland_init();
+bool swell_wayland_window_command(HWND hwnd, WPARAM command);
+SWELL_PLATFORM_API(SWELL_PLATFORM_DECLARE)
+SWELL_PLATFORM_GUI_API(SWELL_PLATFORM_DECLARE)
+SWELL_PLATFORM_BITMAP_API(SWELL_PLATFORM_DECLARE)
+#undef SWELL_PLATFORM_DECLARE
 
 struct SWELL_Platform
 {
@@ -115,12 +126,15 @@ struct SWELL_Platform
 #undef SWELL_PLATFORM_MEMBER
 };
 
+bool swell_platform_is_wayland();
 bool SWELL_load_gtk();
+void swell_im_set_focus(HWND hwnd);
 void swell_im_update_candidates_location();
 HWND swell_ime_get_target();
 void swell_ime_commit(const char *text);
 void swell_ime_preedit(const char *text, int cursor);
-bool swell_ime_delete_surrounding_chars(int offset, int count);
 bool swell_ime_get_surrounding(const char **text, int *cursor, int *anchor);
+void swell_ime_delete_surrounding(unsigned int before, unsigned int after);
+bool swell_ime_delete_surrounding_chars(int offset, int count);
 
 #endif

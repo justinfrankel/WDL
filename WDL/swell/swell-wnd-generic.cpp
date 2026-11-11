@@ -4675,6 +4675,7 @@ forceMouseMove:
                 NMLISTVIEW nm={{hwnd,hwnd->m_id,LVN_BEGINDRAG},lvs->m_capmode_data1,lvs->GetColumnIndex(lvs->m_capmode_data2)};
                 lvs->m_capmode_state=LISTVIEW_CAP_NONE;
                 SendMessage(GetParent(hwnd),WM_NOTIFY,hwnd->m_id,(LPARAM)&nm);
+                swell_oswindow_begin_drag(hwnd);
               }
             }
           break;
@@ -5949,6 +5950,7 @@ forceMouseMove:
                 nm.itemNew.hItem = item;
                 nm.itemNew.lParam = item ? item->m_param : 0;
                 SendMessage(GetParent(hwnd),WM_NOTIFY,nm.hdr.idFrom,(LPARAM)&nm);
+                swell_oswindow_begin_drag(hwnd);
               }
             }
           break;
@@ -7173,6 +7175,8 @@ static HWND recurseOwnedWindowHitTest(HWND h, POINT p, int maxdepth)
 
 HWND WindowFromPoint(POINT p)
 {
+  HWND window;
+  if (swell_oswindow_from_point(p, &window)) return window;
   WDL_PtrList<HWND__> windows;
   for (HWND h = SWELL_topwindows; h; h = h->m_next)
     if (windows.Add(h)) h->Retain();
@@ -7551,6 +7555,13 @@ int menuBarNavigate(int dir) // -1 if no menu bar active, 0 if did nothing, 1 if
 RECT g_trackpopup_yroot;
 static void runMenuBar(HWND hwnd, HMENU__ *menu, int x, const RECT *use_r, int flag)
 {
+  if (g_menubar_active == hwnd)
+  {
+    menu->sel_vis = x;
+    g_menubar_lastrect = *use_r;
+    DestroyPopupMenus();
+    return;
+  }
   menu->Retain();
   MENUITEMINFO *inf = menu->items.Get(x);
   RECT r = *use_r;
@@ -7714,6 +7725,11 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
           SendMessage(hwnd,WM_CONTEXTMENU,(WPARAM)hwndDest,(p.x&0xffff)|(p.y<<16));
       }
     return 1;
+#ifdef SWELL_TARGET_WAYLAND
+    case WM_SYSCOMMAND:
+      if (swell_platform_is_wayland()) return swell_wayland_window_command(hwnd,wParam);
+    break;
+#endif
     case WM_NCLBUTTONDOWN:
     case WM_NCLBUTTONUP:
       if (!hwnd->m_parent && hwnd->m_menu)
@@ -7855,13 +7871,7 @@ LRESULT DefWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     break;
     case WM_SETFOCUS:
 #ifdef SWELL_SUPPORT_IME
-      if (hwnd != swell_ime_target)
-      {
-        swell_oswindow_ime_focus(NULL);
-        swell_ime_preedit(NULL, 0);
-        swell_ime_target = swell_im_hwnd_want(hwnd) ? hwnd : NULL;
-        if (swell_ime_target) swell_oswindow_ime_focus(hwnd);
-      }
+      swell_im_set_focus(hwnd);
 #endif
     break;
   }
@@ -8727,6 +8737,7 @@ void SWELL_DrawFocusRect(HWND hwndPar, RECT *rct, void **handle)
 
   if (rct)
   {
+    if (!hwndPar) swell_oswindow_begin_drag(NULL);
     if (!h)
     {
       h = new HWND__(hwndPar,0,rct,"",false,focusRectWndProc);
@@ -8944,10 +8955,20 @@ LRESULT SWELL_SendMouseMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam
 static int swell_im_hwnd_want(HWND hwnd)
 {
   if (!swell_ime_enabled || !hwnd || !hwnd->m_classname) return 0;
-  if (GetProp(hwnd,"SWELL_IME_ENABLE")) return 3;
+  if (GetProp(hwnd,"SWELL_IME_ENABLE") || GetProp(hwnd,"SWELL_IME_RECT")) return 3;
   if (!strcmp(hwnd->m_classname,"Edit")) return GetProp(hwnd,"SWELL_IME_DISABLE") ? 0 : 1;
   if (!strcmp(hwnd->m_classname,"combobox")) return GetProp(hwnd,"SWELL_IME_DISABLE") ? 0 : 2;
   return 0;
+}
+
+void swell_im_set_focus(HWND hwnd)
+{
+  HWND target = swell_im_hwnd_want(hwnd) ? hwnd : NULL;
+  if (target == swell_ime_target) return;
+  swell_oswindow_ime_focus(NULL);
+  swell_ime_preedit(NULL, 0);
+  swell_ime_target = target;
+  if (target) swell_oswindow_ime_focus(target);
 }
 
 HWND swell_ime_get_target()
@@ -9004,42 +9025,68 @@ bool swell_ime_get_surrounding(const char **text, int *cursor, int *anchor)
   return true;
 }
 
+static void swell_ime_delete_range(HWND hwnd, __SWELL_editControlState *es, int start, int length)
+{
+  const char *text = hwnd->m_title.Get();
+  const int from = WDL_utf8_bytepos_to_charpos(text, start);
+  const int to = WDL_utf8_bytepos_to_charpos(text, start + length);
+  hwnd->m_title.DeleteSub(start, length);
+  int *positions[] = { &es->cursor_pos, &es->sel1, &es->sel2 };
+  for (int i = 0; i < 3; ++i)
+    if (*positions[i] > from) *positions[i] -= wdl_min(*positions[i], to) - from;
+}
 
-bool swell_ime_delete_surrounding_chars(int offset, int n_chars)
+static void swell_ime_finish_delete(HWND hwnd, __SWELL_editControlState *es, bool combo)
+{
+  es->cache_linelen_w = es->cache_linelen_strlen = es->cursor_state = 0;
+  hwnd->Retain();
+  es->autoScrollToOffset(hwnd, es->cursor_pos, !combo && (hwnd->m_style & ES_MULTILINE),
+      !combo && (hwnd->m_style & (ES_MULTILINE | ES_AUTOHSCROLL)) == ES_MULTILINE);
+  if (!hwnd->m_hashaddestroy)
+    InvalidateRect(hwnd, NULL, FALSE);
+  if (!hwnd->m_hashaddestroy)
+    SendMessage(GetParent(hwnd), WM_COMMAND,
+        ((combo ? CBN_EDITCHANGE : EN_CHANGE) << 16) | (hwnd->m_id & 0xffff), (LPARAM)hwnd);
+  hwnd->Release();
+}
+
+bool swell_ime_delete_surrounding_chars(int offset, int count)
 {
   HWND hwnd = swell_ime_target;
-  if (!hwnd || hwnd->m_hashaddestroy || n_chars < 0 || (hwnd->m_style & ES_READONLY)) return false;
-  const int type = swell_im_hwnd_want(hwnd);
-  __SWELL_editControlState *es = NULL;
-  if (type == 2 && hwnd->m_private_data)
-    es = &((__SWELL_ComboBoxInternalState*)hwnd->m_private_data)->editstate;
-  else if (type == 1)
-    es = (__SWELL_editControlState*)hwnd->m_private_data;
-  if (!es || (type == 2 && (hwnd->m_style & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST)) return false;
-
-  const int characters = WDL_utf8_get_charlen(hwnd->m_title.Get());
+  __SWELL_editControlState *es = swell_ime_edit_state(hwnd);
+  if (!es || count < 0 || (hwnd->m_style & ES_READONLY)) return false;
+  const bool combo = swell_im_hwnd_want(hwnd) == 2;
+  if (combo && (hwnd->m_style & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) return false;
+  const char *text = hwnd->m_title.Get();
+  const int characters = WDL_utf8_get_charlen(text);
   const WDL_INT64 start = (WDL_INT64)es->cursor_pos + offset;
-  const int from = (int)wdl_clamp(start, (WDL_INT64)0, (WDL_INT64)characters);
-  const int to = (int)wdl_clamp(start + n_chars, (WDL_INT64)0, (WDL_INT64)characters);
-  if (to > from)
+  const int first = WDL_utf8_charpos_to_bytepos(text, (int)wdl_clamp(start, (WDL_INT64)0, (WDL_INT64)characters));
+  const int last = WDL_utf8_charpos_to_bytepos(text, (int)wdl_clamp(start + count, (WDL_INT64)0, (WDL_INT64)characters));
+  if (last > first)
   {
-    const int first = utf8fs_charpos_to_bytepos(&hwnd->m_title, from);
-    const int last = utf8fs_charpos_to_bytepos(&hwnd->m_title, to);
-    hwnd->m_title.DeleteSub(first, last - first);
-    int *positions[] = { &es->cursor_pos, &es->sel1, &es->sel2 };
-    for (int i = 0; i < 3; ++i)
-      if (*positions[i] > from) *positions[i] -= wdl_min(*positions[i], to) - from;
-    es->cache_linelen_w = es->cache_linelen_strlen = es->cursor_state = 0;
-    hwnd->Retain();
-    es->autoScrollToOffset(hwnd, es->cursor_pos, type == 1 && (hwnd->m_style & ES_MULTILINE),
-        type == 1 && (hwnd->m_style & (ES_MULTILINE | ES_AUTOHSCROLL)) == ES_MULTILINE);
-    if (!hwnd->m_hashaddestroy) InvalidateRect(hwnd, NULL, FALSE);
-    if (!hwnd->m_hashaddestroy)
-      SendMessage(GetParent(hwnd), WM_COMMAND,
-          ((type == 2 ? CBN_EDITCHANGE : EN_CHANGE) << 16) | (hwnd->m_id & 0xffff), (LPARAM)hwnd);
-    hwnd->Release();
+    swell_ime_delete_range(hwnd, es, first, last - first);
+    swell_ime_finish_delete(hwnd, es, combo);
   }
   return true;
+}
+
+void swell_ime_delete_surrounding(unsigned int before, unsigned int after)
+{
+  HWND hwnd = swell_ime_target;
+  __SWELL_editControlState *es = swell_ime_edit_state(hwnd);
+  if (!es || !(before || after) || (hwnd->m_style & ES_READONLY)) return;
+  const bool combo = swell_im_hwnd_want(hwnd) == 2;
+  if (combo && (hwnd->m_style & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST) return;
+  const char *text;
+  int cursor, anchor;
+  if (!swell_ime_get_surrounding(&text, &cursor, &anchor)) return;
+  const int first = wdl_min(cursor, anchor), last = wdl_max(cursor, anchor);
+  if (first < 0 || last > hwnd->m_title.GetLength() || before > (unsigned int)first ||
+      after > (unsigned int)(hwnd->m_title.GetLength() - last)) return;
+  if ((text[first - before] & 0xc0) == 0x80 || (text[last + after] & 0xc0) == 0x80) return;
+  swell_ime_delete_range(hwnd, es, last, (int)after);
+  swell_ime_delete_range(hwnd, es, first - (int)before, (int)before);
+  swell_ime_finish_delete(hwnd, es, combo);
 }
 
 void swell_im_update_candidates_location()
@@ -9056,7 +9103,14 @@ void swell_im_update_candidates_location()
   GetWindowRect(hwnd, &hwnd_r);
   GetWindowContentViewRect(client_hwnd, &client_r);
   int x = hwnd_r.left - client_r.left, y = hwnd_r.top - client_r.top;
-  HDC hdc = hwnd->m_hashaddestroy ? NULL : GetDC(hwnd);
+  RECT area = {x, y, x, y};
+  const RECT *caret = (const RECT *)GetProp(hwnd,"SWELL_IME_RECT");
+  if (caret)
+  {
+    area = *caret;
+    OffsetRect(&area, x, y);
+  }
+  HDC hdc = !caret && !hwnd->m_hashaddestroy ? GetDC(hwnd) : NULL;
   if (hdc)
   {
     if (!hwnd->m_hashaddestroy)
@@ -9080,18 +9134,17 @@ void swell_im_update_candidates_location()
           y += pt.y;
         }
       }
-      y += line_h;
+      area = {x, y + line_h, x, y + line_h};
     }
     ReleaseDC(hwnd, hdc);
   }
   if (!hwnd->m_hashaddestroy && !client_hwnd->m_hashaddestroy && hwnd == swell_ime_target &&
       client_hwnd->m_oswindow == native && swell_oswindow_from_hwnd(hwnd) == native)
   {
-    RECT preedit_area = {x, y, x, y};
     const char *text = NULL;
     int cursor = 0, anchor = 0;
     swell_ime_get_surrounding(&text, &cursor, &anchor);
-    swell_oswindow_ime_update(hwnd, client_hwnd, &preedit_area, text, cursor, anchor);
+    swell_oswindow_ime_update(hwnd, client_hwnd, &area, text, cursor, anchor);
   }
   client_hwnd->Release();
   hwnd->Release();

@@ -1077,7 +1077,18 @@ __attribute__ ((visibility ("default"))) BOOL WINAPI DllMain(HINSTANCE hInstDLL,
 #define WM_SWELL_EXTENDED               0x0399 /* wParam = message specific type */
 #define WM_USER                         0x0400
 
+#define SC_SIZE         0xF000
+#define SC_MOVE         0xF010
 #define SC_CLOSE        0xF060
+
+#define WMSZ_LEFT         1
+#define WMSZ_RIGHT        2
+#define WMSZ_TOP          3
+#define WMSZ_TOPLEFT      4
+#define WMSZ_TOPRIGHT     5
+#define WMSZ_BOTTOM       6
+#define WMSZ_BOTTOMLEFT   7
+#define WMSZ_BOTTOMRIGHT  8
 
 #define HTTRANSPARENT (-1)
 #define HTCAPTION 2
@@ -1326,6 +1337,8 @@ typedef struct tagNMLVCUSTOMDRAW
 #define IDC_SIZEALL MAKEINTRESOURCE(32646)
 #define IDC_SIZENS MAKEINTRESOURCE(32645)
 #define IDC_SIZEWE MAKEINTRESOURCE(32644)
+#define IDC_WAIT MAKEINTRESOURCE(32514)
+#define IDC_APPSTARTING MAKEINTRESOURCE(32650)
 #define IDC_ARROW MAKEINTRESOURCE(32512)
 #define IDC_HAND MAKEINTRESOURCE(32649)
 

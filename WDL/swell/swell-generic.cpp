@@ -25,6 +25,8 @@
 #include "swell.h"
 #include "swell-internal.h"
 #include "swell-platform.h"
+#include <stdlib.h>
+#include <string.h>
 
 #define SWELL_PLATFORM_ADDRESS(ret, name, args, call) name##_gdk,
 static const SWELL_Platform gdk_platform = {
@@ -33,10 +35,65 @@ static const SWELL_Platform gdk_platform = {
   SWELL_PLATFORM_BITMAP_API(SWELL_PLATFORM_ADDRESS)
 };
 #undef SWELL_PLATFORM_ADDRESS
+#ifdef SWELL_TARGET_WAYLAND
+#define SWELL_PLATFORM_ADDRESS(ret, name, args, call) name##_wayland,
+static const SWELL_Platform wayland_platform = {
+  SWELL_PLATFORM_API(SWELL_PLATFORM_ADDRESS)
+  SWELL_PLATFORM_GUI_API(SWELL_PLATFORM_ADDRESS)
+  SWELL_PLATFORM_BITMAP_API(SWELL_PLATFORM_ADDRESS)
+};
+#undef SWELL_PLATFORM_ADDRESS
+#endif
+static const SWELL_Platform *platform;
+
+#ifdef SWELL_TARGET_WAYLAND
+static bool prefer_wayland()
+{
+  const char *display = getenv("WAYLAND_DISPLAY");
+  const char *socket = getenv("WAYLAND_SOCKET");
+  const bool available = (display && *display) || (socket && *socket);
+  const char *backend = getenv("GDK_BACKEND");
+  if (!backend || !*backend) return available;
+  while (*backend)
+  {
+    const char *end = strchr(backend, ',');
+    const size_t len = end ? (size_t)(end - backend) : strlen(backend);
+    if (len == 3 && !memcmp(backend, "x11", 3)) return false;
+    if (len == 7 && !memcmp(backend, "wayland", 7)) return true;
+    if (len == 1 && *backend == '*') return available;
+    if (!end) break;
+    backend = end + 1;
+  }
+  return false;
+}
+#endif
+
+static const SWELL_Platform *get_platform()
+{
+  if (!platform)
+  {
+    platform = &gdk_platform;
+#ifdef SWELL_TARGET_WAYLAND
+    if (prefer_wayland() && swell_wayland_init())
+      platform = &wayland_platform;
+#endif
+  }
+  return platform;
+}
+
+bool swell_platform_is_wayland()
+{
+#ifdef SWELL_TARGET_WAYLAND
+  return get_platform() == &wayland_platform;
+#else
+  return false;
+#endif
+}
 
 bool SWELL_load_gtk()
 {
-#ifdef SWELL_SUPPORT_GTK
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
+  get_platform();
   return SWELL_load_gtk_gdk();
 #else
   return false;
@@ -44,7 +101,7 @@ bool SWELL_load_gtk()
 }
 
 #define SWELL_PLATFORM_WRAPPER(ret, name, args, call) \
-  ret name args { return gdk_platform.name call; }
+  ret name args { return get_platform()->name call; }
 SWELL_PLATFORM_API(SWELL_PLATFORM_WRAPPER)
 SWELL_PLATFORM_BITMAP_API(SWELL_PLATFORM_WRAPPER)
 #ifdef SWELL_TARGET_GDK
