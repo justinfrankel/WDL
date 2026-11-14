@@ -1337,10 +1337,13 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
     x--;
   }
 
+  const int ret = m_trackingRet;
+  ReleaseCapture();
+
 //  if (oldFoc_child) SetFocus(oldFoc);
 
-  if (!(flags&TPM_RETURNCMD) && m_trackingRet>0) 
-    SendMessage(hwnd,WM_COMMAND,m_trackingRet,0);
+  if (!(flags&TPM_RETURNCMD) && ret>0)
+    SendMessage(hwnd,WM_COMMAND,ret,0);
   
   if (hwnd) hwnd->Release();
 
@@ -1349,9 +1352,9 @@ int TrackPopupMenu(HMENU hMenu, int flags, int xpos, int ypos, int resvd, HWND h
 
   m_trackingPar = NULL;
 
-  if (flags & TPM_RETURNCMD) return m_trackingRet>0?m_trackingRet:0;
+  if (flags & TPM_RETURNCMD) return ret>0?ret:0;
 
-  return (resvd|1)!=0xbeef || m_trackingRet>0;
+  return (resvd|1)!=0xbeef || ret>0;
 }
 
 
