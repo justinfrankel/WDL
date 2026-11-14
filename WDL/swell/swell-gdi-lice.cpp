@@ -40,6 +40,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
+#include FT_BITMAP_H
+#include "../assocarray.h"
 
 #ifdef SWELL_FONTCONFIG
 #include <fontconfig/fontconfig.h>
@@ -1017,7 +1019,93 @@ static void init_glyph_fallbacks()
   }
 }
 
-static int Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face &face, int c, int flags) // true on failure
+class swell_glyph_cache
+{
+public:
+  struct glyph
+  {
+    FT_Glyph_Metrics metrics;
+    FT_Bitmap bitmap;
+    int bitmap_left, bitmap_top;
+  };
+
+  swell_glyph_cache() : m_glyphs(free_glyph), m_bytes(0)
+  {
+    memset(&m_size,0,sizeof(m_size));
+  }
+
+  static void free_glyph(glyph *p)
+  {
+    FT_Bitmap_Done(s_freetype,&p->bitmap);
+    delete p;
+  }
+
+  static void destroy(void *p)
+  {
+    delete (swell_glyph_cache *)((FT_Face)p)->generic.data;
+  }
+
+  glyph *get(FT_Face face, int c, int flags)
+  {
+    const FT_Size_Metrics &size = face->size->metrics;
+    if (m_size.x_ppem != size.x_ppem || m_size.y_ppem != size.y_ppem ||
+        m_size.x_scale != size.x_scale || m_size.y_scale != size.y_scale)
+    {
+      m_glyphs.DeleteAll();
+      m_bytes=0;
+      m_size=size;
+    }
+    const int key = c*2 + (flags == FT_LOAD_RENDER);
+    glyph *p = m_glyphs.Get(key);
+    if (p) return p;
+    if (FT_Load_Char(face,c,flags)) return NULL;
+    FT_GlyphSlot slot = face->glyph;
+    m_uncached.metrics = slot->metrics;
+    m_uncached.bitmap = slot->bitmap;
+    m_uncached.bitmap_left = slot->bitmap_left;
+    m_uncached.bitmap_top = slot->bitmap_top;
+    const size_t max_bytes = 128*1024;
+    const size_t bytes = sizeof(glyph) + (size_t)abs(slot->bitmap.pitch) * slot->bitmap.rows;
+    if (bytes > max_bytes) return &m_uncached;
+    if (m_glyphs.GetSize() >= 256 || m_bytes + bytes > max_bytes)
+    {
+      m_glyphs.DeleteAll();
+      m_bytes=0;
+    }
+    p = new glyph;
+    *p = m_uncached;
+    memset(&p->bitmap,0,sizeof(p->bitmap));
+    if (FT_Bitmap_Copy(s_freetype,&slot->bitmap,&p->bitmap))
+    {
+      FT_Bitmap_Done(s_freetype,&p->bitmap);
+      delete p;
+      return &m_uncached;
+    }
+    m_bytes += bytes;
+    m_glyphs.Insert(key,p);
+    return p;
+  }
+
+private:
+  WDL_IntKeyedArray<glyph *> m_glyphs;
+  FT_Size_Metrics m_size;
+  size_t m_bytes;
+  glyph m_uncached;
+};
+
+static swell_glyph_cache::glyph *Load_Char(FT_Face face, int c, int flags)
+{
+  swell_glyph_cache *cache = (swell_glyph_cache *)face->generic.data;
+  if (!cache)
+  {
+    cache = new swell_glyph_cache;
+    face->generic.data = cache;
+    face->generic.finalizer = swell_glyph_cache::destroy;
+  }
+  return cache->get(face,c,flags);
+}
+
+static swell_glyph_cache::glyph *Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face face, int c, int flags)
 {
   if (!FT_Get_Char_Index(face,c))
   {
@@ -1041,17 +1129,14 @@ static int Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face &face, int c, int flag
             FT_Set_Char_Size(f,lfWidth*64, hf64,0,0);
           }
 
-          if (!FT_Load_Char(f,c,flags))
-          {
-            face = f;
-            return 0;
-          }
+          swell_glyph_cache::glyph *g = Load_Char(f,c,flags);
+          if (g) return g;
         }
       }
     }
   }
 
-  return FT_Load_Char(face,c,flags);
+  return Load_Char(face,c,flags);
 }
 #endif
 
@@ -1117,11 +1202,10 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
         if (font)
         {
 #ifdef SWELL_FREETYPE
-          FT_Face useface = face;
-          if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_DEFAULT) && useface->glyph)
+          swell_glyph_cache::glyph *g = c == '\t' ? NULL : Load_Char_Fallback(font,face,c,FT_LOAD_DEFAULT);
+          if (g)
           {
             // measure character
-            FT_GlyphSlot g = useface->glyph;
             int rext = xpos;
             if ((align&(DT_BOTTOM|DT_VCENTER|DT_CENTER|DT_RIGHT))!=DT_RIGHT)
               rext += (g->metrics.width + g->metrics.horiBearingX)/64;
@@ -1246,10 +1330,9 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
       if (font)
       {
 #ifdef SWELL_FREETYPE
-        FT_Face useface = face;
-        if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_RENDER) && useface->glyph)
+        swell_glyph_cache::glyph *g = c == '\t' ? NULL : Load_Char_Fallback(font,face,c,FT_LOAD_RENDER);
+        if (g)
         {
-          FT_GlyphSlot g = useface->glyph;
           const int ha = g->metrics.horiAdvance/64;
           if (bgmode==OPAQUE) LICE_FillRect(surface,xpos,ypos,ha,(align & DT_SINGLELINE) ? (ascent-descent) : lineh,bgcol,1.0f,LICE_BLIT_MODE_COPY);
   
