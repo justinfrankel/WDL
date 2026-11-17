@@ -366,6 +366,17 @@ int swell_delegate_menu_message(HWND src, LPARAM lParam, int msg, bool screencoo
   POINT sp = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
   if (!screencoords) ClientToScreen(src,&sp);
 
+  if (!src->m_parent && src->m_menu)
+  {
+    RECT r;
+    GetWindowContentViewRect(src,&r);
+    if (sp.y >= r.top && sp.y < r.top + g_swell_ctheme.menubar_height)
+    {
+      _reent = false;
+      return 0;
+    }
+  }
+
   for (int x = m_trackingMenus.GetSize()-1; x>=0; x--)
   {
     HWND sw = m_trackingMenus.Get(x);
