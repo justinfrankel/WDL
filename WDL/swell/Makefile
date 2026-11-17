@@ -149,7 +149,7 @@ ifndef NOGDK
   endif
   LINKEXTRA += -lGL
   ifdef PRELOAD_GDK
-    CFLAGS += -Wl,-z,lazy
+    LINKEXTRA += -Wl,-z,lazy
   endif
 endif
 
