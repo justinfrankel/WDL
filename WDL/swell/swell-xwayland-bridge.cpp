@@ -441,6 +441,89 @@ static void xwayland_child_setup(gpointer data)
   if (prctl(PR_SET_PDEATHSIG, SIGTERM) < 0 || getppid() != *(pid_t *)data) _exit(1);
 }
 
+static pid_t s_xwayland_pid = 0;
+static int s_xwayland_guard_fd = -1;
+static pid_t s_xwayland_guard_pid = 0;
+
+// The private Xwayland changes its credentials during startup, which makes the kernel clear the
+// parent-death signal that xwayland_child_setup sets. A guard process watches a pipe instead: the
+// write end stays open in this process, so the guard wakes when this process ends for any reason.
+static void start_xwayland_guard(pid_t xwayland_pid)
+{
+  int pipe_fds[2];
+  if (pipe2(pipe_fds, O_CLOEXEC) < 0) return;
+
+  const pid_t guard = fork();
+  if (guard < 0)
+  {
+    close(pipe_fds[0]);
+    close(pipe_fds[1]);
+    return;
+  }
+  if (guard == 0)
+  {
+    close(pipe_fds[1]);
+    const pid_t parent = getppid();
+    for (;;)
+    {
+      pollfd pfd = {pipe_fds[0], POLLIN, 0};
+      const int ready = poll(&pfd, 1, 1000);
+      if (ready > 0) break;
+      if (ready < 0 && errno != EINTR) break;
+      if (getppid() != parent) break;
+    }
+    kill(xwayland_pid, SIGKILL);
+    if (socket_directory)
+    {
+      unlink(socket_address.sun_path);
+      rmdir(socket_directory);
+    }
+    _exit(0);
+  }
+
+  close(pipe_fds[0]);
+  s_xwayland_guard_fd = pipe_fds[1];
+  s_xwayland_guard_pid = guard;
+}
+
+static void stop_xwayland_guard()
+{
+  if (s_xwayland_guard_pid > 0)
+  {
+    kill(s_xwayland_guard_pid, SIGKILL);
+    while (waitpid(s_xwayland_guard_pid, NULL, 0) < 0 && errno == EINTR)
+    {
+    }
+    s_xwayland_guard_pid = 0;
+  }
+
+  if (s_xwayland_guard_fd >= 0) close(s_xwayland_guard_fd);
+  s_xwayland_guard_fd = -1;
+}
+
+static void terminate_private_xwayland()
+{
+  stop_xwayland_guard();
+
+  if (s_xwayland_pid <= 0) return;
+
+  kill(s_xwayland_pid, SIGTERM);
+  for (int attempt = 0; attempt < 100; ++attempt)
+  {
+    if (waitpid(s_xwayland_pid, NULL, WNOHANG) == s_xwayland_pid)
+    {
+      s_xwayland_pid = 0;
+      return;
+    }
+    g_usleep(10000);
+  }
+  kill(s_xwayland_pid, SIGKILL);
+  while (waitpid(s_xwayland_pid, NULL, 0) < 0 && errno == EINTR)
+  {
+  }
+  s_xwayland_pid = 0;
+}
+
 static pid_t xw_spawn_xwayland(char *display_name, size_t size, int *wm_fd)
 {
   *wm_fd = -1;
@@ -544,6 +627,8 @@ static pid_t xw_spawn_xwayland(char *display_name, size_t size, int *wm_fd)
       close(ready[0]);
       *wm_fd = wm[0];
       atexit(remove_xwayland_socket);
+      atexit(terminate_private_xwayland);
+      start_xwayland_guard(pid);
       return pid;
     }
   }
@@ -675,7 +760,6 @@ XWaylandWM::XWaylandWM(xcb_connection_t *connection)
   init_atoms();
 }
 
-static pid_t s_xwayland_pid = 0;
 static char s_xwayland_display[sizeof(sockaddr_un::sun_path)];
 static XWaylandWM *g_wm = NULL;
 
@@ -765,6 +849,7 @@ XWaylandWM *XWaylandWM::init_bridge_wm()
     {
     }
     s_xwayland_pid = 0;
+    stop_xwayland_guard();
     return NULL;
   }
 
