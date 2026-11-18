@@ -26,6 +26,7 @@ misrepresented as being the original software.
 /* todo: handle overlongs differently? */
 
 #include "wdltypes.h"
+#include <stdlib.h>
 
 #ifndef WDL_WCHAR
   #ifdef _WIN32
