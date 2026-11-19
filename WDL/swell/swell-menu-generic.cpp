@@ -1251,15 +1251,9 @@ static LRESULT WINAPI submenuWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
         RECT r;
         GetClientRect(hwnd,&r);
-        if (GET_X_LPARAM(lParam)>=r.left &&
-            GET_X_LPARAM(lParam)<r.right &&
-            GET_Y_LPARAM(lParam)>top_margin
-            )
-        {
-          SendMessage(hwnd,WM_USER+100,2,GET_Y_LPARAM(lParam));
-          return 0;
-        }
-        else DestroyWindow(hwnd);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (!PtInRect(&r,pt)) DestroyWindow(hwnd);
+        else if (pt.y > top_margin) SendMessage(hwnd,WM_USER+100,2,pt.y);
       }
     return 0;
   }
