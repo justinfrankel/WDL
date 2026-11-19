@@ -1180,6 +1180,8 @@ __attribute__ ((visibility ("default"))) BOOL WINAPI DllMain(HINSTANCE hInstDLL,
 #define HTVSCROLL           7
 
 #define WS_EX_LEFTSCROLLBAR     0x00004000L
+#define WS_EX_TRANSPARENT       0x00000020L
+#define WS_EX_LAYERED           0x00080000L
 #define WS_EX_ACCEPTFILES       0x00000010L
 
 #define SIF_RANGE           0x0001

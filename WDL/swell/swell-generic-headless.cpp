@@ -112,6 +112,8 @@ void SWELL_RunEvents()
 }
 
 
+void swell_oswindow_update_exstyle(HWND) {}
+
 void swell_oswindow_update_style(HWND hwnd, LONG oldstyle)
 {
 }

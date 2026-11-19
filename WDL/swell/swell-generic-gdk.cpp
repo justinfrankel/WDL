@@ -801,6 +801,7 @@ void swell_oswindow_manage(HWND hwnd, bool wantfocus)
  
         if (hwnd->m_oswindow) 
         {
+          if (hwnd->m_exstyle & WS_EX_TRANSPARENT) swell_oswindow_update_exstyle(hwnd);
           bool override_redirect=false;
           const bool modal = DialogBoxIsActive() == hwnd;
 
@@ -2128,6 +2129,24 @@ bool swell_gdk_set_fullscreen(HWND hwnd, int fs) // fs=2 if window might have ow
     gdk_window_unfullscreen(hwnd->m_oswindow);
   }
   return false;
+}
+
+void swell_oswindow_update_exstyle(HWND hwnd)
+{
+  GdkWindow *window = hwnd->m_oswindow;
+  if (window)
+  {
+    const int mask = WS_EX_LAYERED | WS_EX_TRANSPARENT;
+#if SWELL_TARGET_GDK == 2
+    GdkRegion *region = (hwnd->m_exstyle & mask) == mask ? gdk_region_new() : NULL;
+    gdk_window_input_shape_combine_region(window,region,0,0);
+    if (region) gdk_region_destroy(region);
+#else
+    cairo_region_t *region = (hwnd->m_exstyle & mask) == mask ? cairo_region_create() : NULL;
+    gdk_window_input_shape_combine_region(window,region,0,0);
+    if (region) cairo_region_destroy(region);
+#endif
+  }
 }
 
 void swell_oswindow_update_style(HWND hwnd, LONG oldstyle)

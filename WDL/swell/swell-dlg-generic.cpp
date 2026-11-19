@@ -226,6 +226,7 @@ int SWELL_DialogBox(SWELL_DialogResourceIndex *reshead, const char *resid, HWND 
         swell_oswindow_resize(w, flags, hwnd->m_position);
       }
       hwnd->m_oswindow = w;
+      swell_oswindow_update_exstyle(hwnd);
 
       if (!flags)
       {

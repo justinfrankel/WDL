@@ -235,6 +235,8 @@ LONG_PTR SetWindowLong(HWND hwnd, int idx, LONG_PTR val)
   {
     LONG ret = hwnd->m_exstyle;
     hwnd->m_exstyle=val;
+    const int mask = WS_EX_LAYERED | WS_EX_TRANSPARENT;
+    if (((ret & mask) == mask) != ((val & mask) == mask)) swell_oswindow_update_exstyle(hwnd);
     return ret;
   }
   if (idx==GWL_USERDATA)
