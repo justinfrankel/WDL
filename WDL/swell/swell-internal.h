@@ -21,6 +21,10 @@
 #ifndef _SWELL_INTERNAL_H_
 #define _SWELL_INTERNAL_H_
 
+#if defined(SWELL_SUPPORT_GTK) || defined(SWELL_TARGET_WAYLAND)
+#define SWELL_SUPPORT_IME
+#endif
+
 #include "../ptrlist.h"
 
 struct SWELL_ListView_Rec
@@ -837,18 +841,6 @@ SWELL_IMPLEMENT_GETOSXVERSION int SWELL_GetOSXVersion()
 #endif
 
 
-#elif defined(SWELL_TARGET_GDK)
-
-
-#ifdef SWELL_SUPPORT_GTK
-#include <gtk/gtk.h>
-#endif
-
-#include <gdk/gdk.h>
-#include <gdk/gdkkeysyms.h>
-#include <gdk/gdkx.h>
-
-
 #else
 // generic 
 
@@ -885,11 +877,7 @@ struct HTREEITEM__
 LRESULT SwellDialogDefaultWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 
-#ifdef SWELL_TARGET_GDK
-typedef GdkWindow *SWELL_OSWINDOW;
-#else
-typedef void *SWELL_OSWINDOW; // maps to the HWND__ itself on visible, non-GDK, top level windows
-#endif
+typedef void *SWELL_OSWINDOW;
 
 struct HWND__
 {
@@ -1014,6 +1002,7 @@ struct HDC__ {
 HWND DialogBoxIsActive(void);
 bool DestroyPopupMenus(void);
 bool PopupMenuIsActive(void);
+bool swell_menu_get_anchor(HWND hwnd, RECT *rect);
 HWND ChildWindowFromPoint(HWND h, POINT p);
 HWND GetFocusIncludeMenus();
 
@@ -1026,6 +1015,11 @@ void swell_on_toplevel_raise(SWELL_OSWINDOW wnd); // called by swell-generic-gdk
 HWND swell_oswindow_to_hwnd(SWELL_OSWINDOW w);
 SWELL_OSWINDOW swell_oswindow_from_hwnd(HWND hwnd);
 void swell_oswindow_focus(HWND hwnd);
+void swell_oswindow_begin_drag(HWND source);
+bool swell_oswindow_from_point(POINT point, HWND *window);
+bool swell_oswindow_can_reuse();
+void swell_oswindow_end_modal(HWND hwnd);
+void swell_oswindow_update_exstyle(HWND hwnd);
 void swell_oswindow_update_style(HWND hwnd, LONG oldstyle);
 void swell_oswindow_update_enable(HWND hwnd);
 void swell_oswindow_update_text(HWND hwnd);
@@ -1034,9 +1028,13 @@ void swell_oswindow_resize(SWELL_OSWINDOW wnd, int reposflag, RECT f);
 void swell_oswindow_postresize(HWND hwnd, RECT f);
 void swell_oswindow_invalidate(HWND hwnd, const RECT *r);
 void swell_oswindow_destroy(HWND hwnd);
+void swell_oswindow_destroy_spare(SWELL_OSWINDOW window);
 void swell_oswindow_manage(HWND hwnd, bool wantfocus);
 void swell_oswindow_maximize(HWND, bool wantmax); // false=restore
-void swell_oswindow_updatetoscreen(HWND hwnd, RECT *rect);
+#ifdef SWELL_LICE_GDI
+LICE_IBitmap *swell_oswindow_acquire_bitmap(LICE_IBitmap *bitmap, int x, int y, int w, int h);
+void swell_oswindow_release_bitmap(HWND hwnd, LICE_IBitmap *bitmap, const RECT *dirty);
+#endif
 HWND swell_window_wants_all_input(); // window with an active drag of menubar will have this set, to route all mouse events to nonclient area of window
 int swell_delegate_menu_message(HWND src, LPARAM lParam, int msg, bool screencoords); // menubar/menus delegate to submenus during drag.
 

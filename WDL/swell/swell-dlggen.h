@@ -114,6 +114,8 @@ struct SWELL_DlgResourceEntry
 #define SWELL_DLG_WS_DROPTARGET 32
 #ifdef SWELL_TARGET_OSX
 #define SWELL_DLG_WS_DEFAULT_SCALING 128
+#else
+#define SWELL_DLG_WS_DEFAULT_SCALING 0
 #endif
      
 typedef struct SWELL_DialogResourceIndex

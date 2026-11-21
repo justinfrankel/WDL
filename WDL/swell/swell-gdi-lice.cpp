@@ -27,6 +27,9 @@
 
 #include "swell.h"
 #include "swell-internal.h"
+#ifdef SWELL_TARGET_GDK
+#include <gdk-pixbuf/gdk-pixbuf.h>
+#endif
 
 #include "../mutex.h"
 #include "../ptrlist.h"
@@ -40,6 +43,8 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_GLYPH_H
+#include FT_BITMAP_H
+#include "../assocarray.h"
 
 #ifdef SWELL_FONTCONFIG
 #include <fontconfig/fontconfig.h>
@@ -1017,7 +1022,93 @@ static void init_glyph_fallbacks()
   }
 }
 
-static int Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face &face, int c, int flags) // true on failure
+class swell_glyph_cache
+{
+public:
+  struct glyph
+  {
+    FT_Glyph_Metrics metrics;
+    FT_Bitmap bitmap;
+    int bitmap_left, bitmap_top;
+  };
+
+  swell_glyph_cache() : m_glyphs(free_glyph), m_bytes(0)
+  {
+    memset(&m_size,0,sizeof(m_size));
+  }
+
+  static void free_glyph(glyph *p)
+  {
+    FT_Bitmap_Done(s_freetype,&p->bitmap);
+    delete p;
+  }
+
+  static void destroy(void *p)
+  {
+    delete (swell_glyph_cache *)((FT_Face)p)->generic.data;
+  }
+
+  glyph *get(FT_Face face, int c, int flags)
+  {
+    const FT_Size_Metrics &size = face->size->metrics;
+    if (m_size.x_ppem != size.x_ppem || m_size.y_ppem != size.y_ppem ||
+        m_size.x_scale != size.x_scale || m_size.y_scale != size.y_scale)
+    {
+      m_glyphs.DeleteAll();
+      m_bytes=0;
+      m_size=size;
+    }
+    const int key = c*2 + (flags == FT_LOAD_RENDER);
+    glyph *p = m_glyphs.Get(key);
+    if (p) return p;
+    if (FT_Load_Char(face,c,flags)) return NULL;
+    FT_GlyphSlot slot = face->glyph;
+    m_uncached.metrics = slot->metrics;
+    m_uncached.bitmap = slot->bitmap;
+    m_uncached.bitmap_left = slot->bitmap_left;
+    m_uncached.bitmap_top = slot->bitmap_top;
+    const size_t max_bytes = 128*1024;
+    const size_t bytes = sizeof(glyph) + (size_t)abs(slot->bitmap.pitch) * slot->bitmap.rows;
+    if (bytes > max_bytes) return &m_uncached;
+    if (m_glyphs.GetSize() >= 256 || m_bytes + bytes > max_bytes)
+    {
+      m_glyphs.DeleteAll();
+      m_bytes=0;
+    }
+    p = new glyph;
+    *p = m_uncached;
+    memset(&p->bitmap,0,sizeof(p->bitmap));
+    if (FT_Bitmap_Copy(s_freetype,&slot->bitmap,&p->bitmap))
+    {
+      FT_Bitmap_Done(s_freetype,&p->bitmap);
+      delete p;
+      return &m_uncached;
+    }
+    m_bytes += bytes;
+    m_glyphs.Insert(key,p);
+    return p;
+  }
+
+private:
+  WDL_IntKeyedArray<glyph *> m_glyphs;
+  FT_Size_Metrics m_size;
+  size_t m_bytes;
+  glyph m_uncached;
+};
+
+static swell_glyph_cache::glyph *Load_Char(FT_Face face, int c, int flags)
+{
+  swell_glyph_cache *cache = (swell_glyph_cache *)face->generic.data;
+  if (!cache)
+  {
+    cache = new swell_glyph_cache;
+    face->generic.data = cache;
+    face->generic.finalizer = swell_glyph_cache::destroy;
+  }
+  return cache->get(face,c,flags);
+}
+
+static swell_glyph_cache::glyph *Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face face, int c, int flags)
 {
   if (!FT_Get_Char_Index(face,c))
   {
@@ -1041,17 +1132,14 @@ static int Load_Char_Fallback(HGDIOBJ__ *srcfont, FT_Face &face, int c, int flag
             FT_Set_Char_Size(f,lfWidth*64, hf64,0,0);
           }
 
-          if (!FT_Load_Char(f,c,flags))
-          {
-            face = f;
-            return 0;
-          }
+          swell_glyph_cache::glyph *g = Load_Char(f,c,flags);
+          if (g) return g;
         }
       }
     }
   }
 
-  return FT_Load_Char(face,c,flags);
+  return Load_Char(face,c,flags);
 }
 #endif
 
@@ -1117,11 +1205,10 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
         if (font)
         {
 #ifdef SWELL_FREETYPE
-          FT_Face useface = face;
-          if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_DEFAULT) && useface->glyph)
+          swell_glyph_cache::glyph *g = c == '\t' ? NULL : Load_Char_Fallback(font,face,c,FT_LOAD_DEFAULT);
+          if (g)
           {
             // measure character
-            FT_GlyphSlot g = useface->glyph;
             int rext = xpos;
             if ((align&(DT_BOTTOM|DT_VCENTER|DT_CENTER|DT_RIGHT))!=DT_RIGHT)
               rext += (g->metrics.width + g->metrics.horiBearingX)/64;
@@ -1246,10 +1333,9 @@ int DrawText(HDC ctx, const char *buf, int buflen, RECT *r, int align)
       if (font)
       {
 #ifdef SWELL_FREETYPE
-        FT_Face useface = face;
-        if (c != '\t' && !Load_Char_Fallback(font, useface, c, FT_LOAD_RENDER) && useface->glyph)
+        swell_glyph_cache::glyph *g = c == '\t' ? NULL : Load_Char_Fallback(font,face,c,FT_LOAD_RENDER);
+        if (g)
         {
-          FT_GlyphSlot g = useface->glyph;
           const int ha = g->metrics.horiAdvance/64;
           if (bgmode==OPAQUE) LICE_FillRect(surface,xpos,ypos,ha,(align & DT_SINGLELINE) ? (ascent-descent) : lineh,bgcol,1.0f,LICE_BLIT_MODE_COPY);
   
@@ -1395,7 +1481,7 @@ HICON LoadNamedImage(const char *name, bool alphaFromMask)
         ret->wid=1;
         ret->typedata = bm;
       }
-      else delete wr;
+      else delete bm;
     }
     g_object_unref(pb);
     return ret;
@@ -1591,10 +1677,17 @@ HDC SWELL_internalGetWindowDC(HWND h, bool calcsize_on_first)
   {
     if ((calcsize_on_first || h!=starth)  && h->m_wndproc)
     {
+      starth->Retain();
+      h->Retain();
       RECT r;
       GetWindowContentViewRect(h,&r);
       NCCALCSIZE_PARAMS p={{r,},};
-      h->m_wndproc(h,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      if (!h->m_hashaddestroy && !starth->m_hashaddestroy && h->m_wndproc)
+        h->m_wndproc(h,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      const bool destroyed = h->m_hashaddestroy || starth->m_hashaddestroy;
+      h->Release();
+      starth->Release();
+      if (destroyed) return NULL;
       RECT r2=r;
       r=p.rgrc[0];
 
@@ -1629,16 +1722,13 @@ HDC SWELL_internalGetWindowDC(HWND h, bool calcsize_on_first)
 
   if (h->m_backingstore && vis)
   {
-    p->ctx.surface=new LICE_SubBitmap(h->m_backingstore,
-        xoffs+ltrim,yoffs+ttrim,
-        wndw-ltrim-rtrim,wndh-ttrim-btrim);
+    p->ctx.surface = swell_oswindow_acquire_bitmap(h->m_backingstore,
+        xoffs+ltrim, yoffs+ttrim, wndw-ltrim-rtrim, wndh-ttrim-btrim);
     p->clipr.right += p->ctx.surface->getWidth();
     p->clipr.bottom += p->ctx.surface->getHeight();
   }
-  if (xoffs<0) p->ctx.surface_offs.x = xoffs;
-  if (yoffs<0) p->ctx.surface_offs.y = yoffs;
-  p->ctx.surface_offs.x -= ltrim;
-  p->ctx.surface_offs.y -= ttrim;
+  p->ctx.surface_offs.x = wdl_min(xoffs, -ltrim);
+  p->ctx.surface_offs.y = wdl_min(yoffs, -ttrim);
 
   p->ctx.curfont = starth->m_font;
   // todo: other GDI defaults?
@@ -1659,34 +1749,26 @@ void ReleaseDC(HWND h, HDC hdc)
 {
   if (WDL_NOT_NORMALLY(!h) || !HDC_VALID(hdc)) return;
   swell_gdpLocalContext *p = (swell_gdpLocalContext*)hdc;
-
-
-  if (!h->m_paintctx)
+  HWND par = h;
+  while (par && !par->m_backingstore) par=par->m_parent;
+  RECT r = p->clipr;
+  if (p->ctx.dirty_rect_valid)
   {
     // handle blitting?
-    HWND par = h;
-    while (par && !par->m_backingstore) par=par->m_parent;
-    if (par) 
-    {
-      if (p->ctx.dirty_rect_valid)
-      {
-        RECT r = p->clipr, dr=p->ctx.dirty_rect; 
-        dr.left += r.left;
-        dr.top += r.top;
-        dr.right += r.left;
-        dr.bottom += r.top;
+    RECT dr=p->ctx.dirty_rect;
+    dr.left += r.left;
+    dr.top += r.top;
+    dr.right += r.left;
+    dr.bottom += r.top;
 #if 1
-        if (dr.left > r.left) r.left=dr.left;
-        if (dr.top > r.top) r.top=dr.top;
-        if (dr.right < r.right) r.right=dr.right;
-        if (dr.bottom < r.bottom) r.bottom=dr.bottom;
+    if (dr.left > r.left) r.left=dr.left;
+    if (dr.top > r.top) r.top=dr.top;
+    if (dr.right < r.right) r.right=dr.right;
+    if (dr.bottom < r.bottom) r.bottom=dr.bottom;
 #endif
-
-        if (r.top<r.bottom && r.left<r.right) swell_oswindow_updatetoscreen(par,&r);
-      }
-    }
   }
-  delete p->ctx.surface;
+  swell_oswindow_release_bitmap(h->m_paintctx ? NULL : par, p->ctx.surface,
+      p->ctx.dirty_rect_valid ? &r : NULL);
   SWELL_GDP_CTX_DELETE(hdc);
 }
 
@@ -1718,9 +1800,12 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
   // todo: implement/use per-window backing store.
   //   we would want to only really use them for top level windows, and on those, only update windows (and children of windows) who had backingstore invalidated.
   if (hwnd->m_invalidated) forceref=true;
+  const bool child_invalidated = hwnd->m_child_invalidated;
+  hwnd->m_invalidated = hwnd->m_child_invalidated = false;
 
   int calced_w = -1, calced_h = -1;
-  if (forceref || hwnd->m_child_invalidated)
+  bool okToClearChild=true;
+  if (forceref || child_invalidated)
   {
     swell_gdpLocalContext ctx;
     memset(&ctx,0,sizeof(ctx));
@@ -1745,11 +1830,16 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
       NCCALCSIZE_PARAMS p;
       memset(&p,0,sizeof(p));
       p.rgrc[0]=r2;
-      hwnd->m_wndproc(hwnd,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
+      SendMessage(hwnd,WM_NCCALCSIZE,FALSE,(LPARAM)&p);
       RECT r = p.rgrc[0];
       calced_w = r.right-r.left;
       calced_h = r.bottom-r.top;
-      if (forceref) hwnd->m_wndproc(hwnd,WM_NCPAINT,(WPARAM)1,0);
+      if (forceref) SendMessage(hwnd,WM_NCPAINT,(WPARAM)1,0);
+      if (hwnd->m_hashaddestroy)
+      {
+        hwnd->m_paintctx = oldpaintctx;
+        goto done;
+      }
 
       // dx,dy is offset from the window's nonclient root
       const int dx = r.left-r2.left,dy=r.top-r2.top;
@@ -1791,18 +1881,17 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
       if (hwnd->m_wndproc && ctx.clipr.right > ctx.clipr.left && ctx.clipr.bottom > ctx.clipr.top) 
       {
         ctx.ctx.curfont = hwnd->m_font;
-        hwnd->m_wndproc(hwnd,WM_PAINT,(WPARAM)&ctx,0);
+        SendMessage(hwnd,WM_PAINT,(WPARAM)&ctx,0);
       }
 
       hwnd->m_paintctx = oldpaintctx;
+      if (hwnd->m_hashaddestroy) goto done;
    
       // it might be good to blit here on some OSes, rather than from the top level caller...
-      hwnd->m_invalidated=false;
     }
   }
 
-  bool okToClearChild=true;
-  if (forceref || hwnd->m_child_invalidated)
+  if (forceref || child_invalidated)
   {
     HWND h = hwnd->m_children;
     while (h) 
@@ -1842,16 +1931,28 @@ void SWELL_internalLICEpaint(HWND hwnd, LICE_IBitmap *bmout, int bmout_xpos, int
         {
           LICE_SubBitmap subbm(bmout,subx,suby,width,height); // the right/bottom will automatically be clipped to the clip rect etc
           if (subbm.getWidth()>0 && subbm.getHeight()>0)
+          {
+            h->Retain();
             SWELL_internalLICEpaint(h,&subbm,-extra_xo-xp,-extra_yo-yp,forceref);
+            const bool interrupted = h->m_hashaddestroy || hwnd->m_hashaddestroy || h->m_parent != hwnd;
+            h->Release();
+            if (interrupted)
+            {
+              if (child_invalidated) hwnd->m_child_invalidated = true;
+              goto done;
+            }
+          }
         }
       }
       h = h->m_next;
     }
   }
-  if (okToClearChild) hwnd->m_child_invalidated=false;
+  if (!okToClearChild) hwnd->m_child_invalidated=true;
+done:
 #ifdef _DEBUG
   g_swell_in_paint--;
 #endif
+  return;
 }
 
 HBITMAP CreateBitmap(int width, int height, int numplanes, int bitsperpixel, unsigned char* bits)

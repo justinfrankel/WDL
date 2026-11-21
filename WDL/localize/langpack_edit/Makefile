@@ -10,7 +10,7 @@ vpath %.cpp $(WDL_PATH) $(WDL_PATH)/wingui $(WDL_PATH)/localize
 SWELL_OBJS = swell.o swell-ini.o swell-miscdlg-generic.o swell-wnd-generic.o \
              swell-menu-generic.o swell-kb-generic.o swell-dlg-generic.o \
              swell-gdi-generic.o swell-misc-generic.o swell-gdi-lice.o \
-             swell-generic-gdk.o swell-appstub-generic.o swell-modstub-generic.o
+             swell-generic.o swell-generic-gdk.o swell-generic-headless.o swell-appstub-generic.o swell-modstub-generic.o
 
 LICE_OBJS = lice_image.o lice_arc.o lice_line.o lice_text.o \
             lice_textnew.o lice.o lice_colorspace.o
@@ -59,21 +59,23 @@ endif
 LINKEXTRA =  -lpthread -ldl
 
 ifndef NOGDK
+  CFLAGS += $(shell $(PKG_CONFIG) --cflags x11-xcb xcb-icccm xcb-xinput)
+  LINKEXTRA += $(shell $(PKG_CONFIG) --libs x11-xcb xcb-icccm xcb-xinput)
   ifdef GDK2
     CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
-    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0)
-    LINKEXTRA += -lX11 -lXi
+    LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0)
+    LINKEXTRA += -lX11 -lGL
   else
     ifdef SWELL_SUPPORT_GTK
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gtk+-3.0) -DSWELL_SUPPORT_GTK
     else
       CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gdk-3.0)
     endif
-    LINKEXTRA += -lX11 -lXi -lGL
+    LINKEXTRA += -lX11 -lGL
     ifdef SWELL_SUPPORT_GTK
       LINKEXTRA += $(shell $(PKG_CONFIG) --libs gtk+-3.0)
     else
-      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0)
+      LINKEXTRA += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0)
     endif
   endif
   CFLAGS += -DSWELL_LICE_GDI

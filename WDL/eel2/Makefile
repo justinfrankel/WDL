@@ -2,6 +2,7 @@ CC=gcc
 CFLAGS=-g -DWDL_FFT_REALSIZE=8  -Wall -Wno-unused-function -Wno-multichar -Wno-unused-result -Wshadow -Wtype-limits
 LFLAGS=
 CXX=g++
+PKG_CONFIG = pkg-config
 
 ifdef DEBUG
 CFLAGS += -D_DEBUG -O0 -DWDL_CHECK_FOR_NON_UTF8_FOPEN
@@ -93,21 +94,23 @@ ifndef NO_GFX
   else
 
     CFLAGS += -DSWELL_LICE_GDI -DSWELL_EXTRA_MINIMAL
+    CFLAGS += $(shell $(PKG_CONFIG) --cflags x11-xcb xcb-icccm xcb-xinput)
+    LFLAGS += $(shell $(PKG_CONFIG) --libs x11-xcb xcb-icccm xcb-xinput)
     ifdef GDK2
-      CFLAGS += -DSWELL_TARGET_GDK=2 $(shell pkg-config --cflags gdk-2.0)
-      LFLAGS += $(shell pkg-config --libs gdk-2.0) -lX11 -lXi
+      CFLAGS += -DSWELL_TARGET_GDK=2 $(shell $(PKG_CONFIG) --cflags gdk-2.0)
+      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-2.0 gio-2.0) -lX11
     else
-      CFLAGS += -DSWELL_TARGET_GDK=3 $(shell pkg-config --cflags gdk-3.0)
-      LFLAGS += $(shell pkg-config --libs gdk-3.0) -lX11 -lXi
+      CFLAGS += -DSWELL_TARGET_GDK=3 $(shell $(PKG_CONFIG) --cflags gdk-3.0)
+      LFLAGS += $(shell $(PKG_CONFIG) --libs gdk-3.0 gio-2.0) -lX11
     endif
     ifndef NOFREETYPE
-      CFLAGS += -DSWELL_FREETYPE $(shell pkg-config --cflags freetype2)
-      LFLAGS += $(shell pkg-config --libs freetype2)
+      CFLAGS += -DSWELL_FREETYPE $(shell $(PKG_CONFIG) --cflags freetype2)
+      LFLAGS += $(shell $(PKG_CONFIG) --libs freetype2)
     endif
 
     SWELL_OBJS += swell-wnd-generic.o swell-gdi-lice.o swell.o swell-misc-generic.o \
             swell-dlg-generic.o swell-menu-generic.o swell-kb-generic.o \
-            swell-gdi-generic.o swell-ini.o swell-generic-gdk.o
+            swell-gdi-generic.o swell-ini.o swell-generic.o swell-generic-gdk.o
 
     LFLAGS += -ldl -lGL
   endif
